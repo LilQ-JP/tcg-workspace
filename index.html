@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>TCG Universal Workspace</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <meta name="description" content="A real-time P2P card game space.">
+</head>
+<body>
+    <!-- Access Code Gate -->
+    <div id="gate-overlay">
+        <div id="gate-box">
+            <h1>TCG Workspace</h1>
+            <p>プレリリース版にアクセスするにはコードを入力してください</p>
+            <div class="gate-input-wrapper">
+                <input type="password" id="gate-code" placeholder="Access Code" autocomplete="off">
+                <button class="btn-primary" id="gate-btn">入場する</button>
+            </div>
+            <div id="gate-error"></div>
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div id="toolbar">
+        <label class="btn-label btn-primary">画像読込 <input type="file" id="loader" multiple accept="image/*"></label>
+        <button id="btn-init-deck">山札作成 (初期化)</button>
+        <button id="btn-add-zone" class="btn-success">➕ エリア追加</button>
+        <div style="display:flex; align-items:center; gap:5px; background:#555; padding:0 8px; border-radius:4px; height: 35px; box-sizing: border-box;">
+            <span style="font-size:12px;">カード比率</span>
+            <input type="range" id="card-scale-slider" min="0.4" max="3" step="0.1" value="1" style="width:70px; cursor:pointer;" title="カードサイズの調整">
+        </div>
+        <button id="btn-clear-selection" class="btn-danger">選択解除</button>
+        <button id="btn-undo" class="btn-warning">↩️ 戻る (Undo)</button>
+        <button id="btn-lobby" class="btn-net">🌐 ネット対戦</button>
+    </div>
+
+    <div id="net-status-bar">
+        <span id="net-status-dot" class="status-dot green"></span>
+        <span id="net-status-text">接続中...</span>
+        <button id="btn-lobby-close" style="padding:3px 10px;font-size:12px;background:#00695c;border:none;color:#fff;border-radius:4px;cursor:pointer;margin-left:8px;">詳細</button>
+    </div>
+
+    <div id="opponent-field-wrapper">
+        <div class="opponent-label">🔴 相手のフィールド</div>
+        <div id="opponent-field"></div>
+    </div>
+
+    <div id="field">
+        <div id="field-top"></div>
+        <div class="resizer" id="resizer-1"></div>
+        <div id="field-middle"></div>
+        <div class="resizer" id="resizer-2"></div>
+        <div id="field-bottom"></div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu"></div>
+
+    <!-- Modal Dialogs -->
+    <div id="modal-overlay">
+        <div id="modal-container">
+            <div id="modal-header-bar">
+                <h2 class="modal-title" id="modal-title"></h2>
+                <button id="modal-close-x" onclick="window.TCGApp.closeModal()" title="閉じる">✕</button>
+            </div>
+            <div class="modal-buttons" id="modal-buttons"></div>
+            <div id="modal-content" class="modal-card-list"></div>
+
+            <div id="modal-wait-wrapper" style="width: 100%; display: none;">
+                <div id="modal-divider" class="modal-divider-line"></div>
+                <div id="modal-subtitle" class="modal-subtitle"></div>
+                <div id="modal-wait-content" class="modal-card-list"></div>
+            </div>
+
+            <div id="modal-divider2" class="modal-divider-line" style="display:none;"></div>
+            <div id="modal-field-zones" style="display:none; width:100%;"></div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="preview-overlay">
+        <div id="preview-popup" style="padding:16px;">
+            <div id="preview-popup-header">
+                <button id="preview-close-btn" onclick="window.TCGApp.closePreview()" title="閉じる">✕</button>
+            </div>
+            <img id="preview-img" src="" alt="preview">
+        </div>
+    </div>
+
+    <!-- Lobby Modal -->
+    <div id="lobby-overlay">
+        <div id="lobby-box">
+            <h2>🌐 ネット対戦</h2>
+            <div id="lobby-content"></div>
+            <button class="lobby-btn lobby-btn-close" onclick="window.TCGApp.closeLobby()">閉じる</button>
+        </div>
+    </div>
+
+    <!-- Standard Dialog -->
+    <div id="dialog-overlay">
+        <div id="dialog-box">
+            <h3 style="margin-top:0; color:#fff; text-align:center; font-size:16px; line-height:1.6; font-weight:500;" id="dialog-msg"></h3>
+            <div style="display:flex; gap:16px; margin-top:32px;">
+                <button id="dialog-btn-a" class="btn-dialog btn-dialog-a">A</button>
+                <button id="dialog-btn-b" class="btn-dialog btn-dialog-b">B</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
