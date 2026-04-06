@@ -1,4 +1,5 @@
 import { state } from './game-state.js';
+import { Peer } from 'peerjs';
 
 let peer = null;
 let peerConn = null;
