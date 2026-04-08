@@ -101,17 +101,54 @@ function joinRoom() {
 function initPeer(roomId, isHost, targetId) {
     if (peer) { peer.destroy(); peer = null; }
 
-    const peerOptions = { debug: 0 };
+    // GitHub Pages (HTTPS) 環境でも安定して接続できる公開サーバーを明示指定
+    const peerOptions = {
+        host: '0.peerjs.com',
+        port: 443,
+        path: '/',
+        secure: true,
+        debug: 0,
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        }
+    };
+
+    // 接続タイムアウト処理
+    let openTimeout = null;
 
     if (isHost) {
+        // ボタンを「接続中...」に変更してフィードバックを出す
+        const btn = document.getElementById('btn-create-room');
+        if (btn) { btn.textContent = '接続中...'; btn.disabled = true; }
         peer = new Peer(roomId, peerOptions);
     } else {
         peer = new Peer(peerOptions);
     }
 
+    // タイムアウト: 15秒でサーバー接続できなければエラー表示
+    openTimeout = setTimeout(() => {
+        if (!myPeerId) {
+            const btn = document.getElementById('btn-create-room');
+            if (btn) { btn.textContent = '部屋を作成'; btn.disabled = false; }
+            const roomStatus = document.getElementById('room-status');
+            const joinStatus = document.getElementById('join-status');
+            const msg = '❌ サーバーに接続できません。時間をおいて再試行してください。';
+            if (roomStatus) roomStatus.textContent = msg;
+            if (joinStatus) joinStatus.textContent = msg;
+            if (peer) { peer.destroy(); peer = null; }
+        }
+    }, 15000);
+
     peer.on('open', (id) => {
         myPeerId = id;
+        clearTimeout(openTimeout); // 接続成功 → タイムアウトキャンセル
         if (isHost) {
+            // ボタンを元に戻す
+            const btn = document.getElementById('btn-create-room');
+            if (btn) { btn.textContent = '部屋を作成'; btn.disabled = false; }
             document.getElementById('room-created-info').style.display = 'block';
             document.getElementById('room-id-display').textContent = roomId;
             document.getElementById('room-status').textContent = '⏳ 相手の接続を待っています...';

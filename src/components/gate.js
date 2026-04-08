@@ -9,13 +9,25 @@ export function initGate(onSuccess) {
     };
 
     // "lilqTCG" の SHA-256 ハッシュ (仮のパスワード)
-    const VALID_HASH = "8c6b7cb056a0041d8e13fcdb262d5d852077e68bc3f1e18cdca2774ac05c3b17";
+    const VALID_HASH = "f2a0668b3abed4fb7a852e25e5f85613c58fdbd2258f1f5a6276368c622829d1";
 
-    const isAuthorized = sessionStorage.getItem('tcg_authorized') === 'true';
+    const isAuthorized = localStorage.getItem('tcg_authorized') === 'true';
+
+    function showPwaGuide() {
+        if (localStorage.getItem('tcg_pwa_guided')) return;
+        localStorage.setItem('tcg_pwa_guided', 'true');
+        const videoOverlay = document.getElementById('video-overlay');
+        const tutorialVideo = document.getElementById('tutorial-video');
+        if (videoOverlay && tutorialVideo) {
+            videoOverlay.style.display = 'flex';
+            tutorialVideo.play().catch(e => console.log('Auto-play prevented:', e));
+        }
+    }
 
     if (isAuthorized) {
         document.getElementById('gate-overlay').style.display = 'none';
         onSuccess();
+        setTimeout(showPwaGuide, 500);
         return;
     }
 
@@ -32,16 +44,17 @@ export function initGate(onSuccess) {
         try {
             const hash = await ACCESS_CODE_HASH(val);
             if (hash === VALID_HASH) {
-                sessionStorage.setItem('tcg_authorized', 'true');
+                localStorage.setItem('tcg_authorized', 'true');
                 
                 // Success animation
-                gateInput.style.borderColor = 'var(--success)';
+                gateInput.style.borderColor = '#2e7d32'; // original success green
                 setTimeout(() => {
                     document.getElementById('gate-overlay').style.opacity = '0';
                     document.getElementById('gate-overlay').style.transition = 'opacity 0.5s';
                     setTimeout(() => {
                         document.getElementById('gate-overlay').style.display = 'none';
                         onSuccess();
+                        setTimeout(showPwaGuide, 500);
                     }, 500);
                 }, 400);
             } else {

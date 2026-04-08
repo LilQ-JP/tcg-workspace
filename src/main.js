@@ -87,6 +87,18 @@ function initApp() {
         document.getElementById('lobby-overlay').style.display = 'none';
     };
 
+    // Video Tutorial / Install Guide
+    const videoOverlay = document.getElementById('video-overlay');
+    const tutorialVideo = document.getElementById('tutorial-video');
+    document.getElementById('btn-install-guide').onclick = () => {
+        videoOverlay.style.display = 'flex';
+        tutorialVideo.play().catch(e => console.log('Auto-play prevented:', e));
+    };
+    document.getElementById('video-close-btn').onclick = () => {
+        videoOverlay.style.display = 'none';
+        tutorialVideo.pause();
+    };
+
     // Global click handler to close menus
     window.onclick = e => {
         const menu = document.getElementById('context-menu');

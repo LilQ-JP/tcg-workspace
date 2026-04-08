@@ -5,6 +5,9 @@
     <title>TCG Universal Workspace</title>
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <meta name="description" content="A real-time P2P card game space.">
+    <link rel="icon" href="icon-banana.png" type="image/png">
+    <link rel="apple-touch-icon" href="icon-banana.png">
+    <link rel="manifest" href="manifest-v2.json">
 </head>
 <body>
     <!-- Access Code Gate -->
@@ -31,6 +34,7 @@
         </div>
         <button id="btn-clear-selection" class="btn-danger">選択解除</button>
         <button id="btn-undo" class="btn-warning">↩️ 戻る (Undo)</button>
+        <button id="btn-install-guide" class="btn-primary" style="background:#673ab7; border:none; border-radius:4px; font-weight:bold; cursor:pointer; color:#fff; padding:8px 15px;">📲 アプリを入れる</button>
         <button id="btn-lobby" class="btn-net">🌐 ネット対戦</button>
     </div>
 
@@ -104,6 +108,15 @@
                 <button id="dialog-btn-a" class="btn-dialog btn-dialog-a">A</button>
                 <button id="dialog-btn-b" class="btn-dialog btn-dialog-b">B</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Video Modal -->
+    <div id="video-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:40000; justify-content:center; align-items:center;">
+        <div style="background:#2a2a2a; padding:20px; border-radius:12px; width:90%; max-width:800px; text-align:center; position:relative; border:2px solid #555; box-shadow:0 10px 30px rgba(0,0,0,0.8);">
+            <button id="video-close-btn" style="position:absolute; top:10px; right:15px; background:#c00; color:#fff; border:none; border-radius:50%; width:30px; height:30px; font-weight:bold; cursor:pointer;">✕</button>
+            <h2 style="color:#fff; margin-top:0; margin-bottom:15px; font-size:18px;">📲 全画面で遊べる「アプリ版」のインストール手順</h2>
+            <video id="tutorial-video" src="export-1775440184090.mp4" controls preload="none" style="width:100%; border-radius:8px; max-height: 70vh; outline:none; background:#000;"></video>
         </div>
     </div>
 
