@@ -1,0 +1,3040 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>TCG Universal Workspace v9.0 - ネット対戦対応</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --card-w: 70px;
+            --card-h: 100px;
+        }
+
+        body {
+            margin: 0;
+            background: #1a1a1a;
+            color: #eee;
+            font-family: sans-serif;
+            user-select: none;
+            overflow: hidden;
+            /* Fix layout to 100vh */
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .resizer {
+            height: 10px;
+            background: #333;
+            cursor: row-resize;
+            flex-shrink: 0;
+            transition: background 0.2s;
+            z-index: 100;
+            margin: 0;
+        }
+
+        .resizer:hover,
+        .resizer.dragging {
+            background: #0078d7;
+        }
+
+        #toolbar {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: #333;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 2px solid #444;
+            flex-wrap: wrap;
+        }
+
+        button,
+        .btn-label {
+            padding: 8px 15px;
+            background: #555;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            text-align: center;
+            transition: background 0.2s;
+        }
+
+        button:hover,
+        .btn-label:hover {
+            background: #666;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .btn-danger {
+            background: #a00;
+        }
+
+        .btn-danger:hover {
+            background: #c00;
+        }
+
+        .btn-primary {
+            background: #0078d7;
+        }
+
+        .btn-primary:hover {
+            background: #005a9e;
+        }
+
+        .btn-success {
+            background: #2e7d32;
+        }
+
+        .btn-success:hover {
+            background: #1b5e20;
+        }
+
+        .btn-warning {
+            background: #d48806;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .btn-warning:hover {
+            background: #b07005;
+        }
+
+        .btn-purple {
+            background: #673ab7;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .btn-purple:hover {
+            background: #512da8;
+        }
+
+        #field {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        #field-top,
+        #field-middle,
+        #field-bottom {
+            display: flex;
+            flex-wrap: nowrap;
+            /* エリアの水平並び */
+            overflow-x: auto;
+            overflow-y: hidden;
+            gap: 15px;
+            padding: 15px;
+            align-items: stretch;
+            box-sizing: border-box;
+            min-height: 120px;
+        }
+
+        #field-top {
+            flex: 0 0 35vh;
+            background: #1e1e1e;
+        }
+
+        #field-middle {
+            flex: 1 1 auto;
+            background: #1a1a1a;
+        }
+
+        #field-bottom {
+            flex: 0 0 25vh;
+            background: #252525;
+            box-shadow: inset 0 5px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .zone {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px dashed #444;
+            border-radius: 8px;
+            min-width: 180px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            resize: horizontal;
+            overflow: hidden;
+            position: relative;
+            flex-grow: 1;
+        }
+
+        .zone-cards {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 10px;
+            align-items: center;
+            overflow-x: auto;
+            overflow-y: hidden;
+            flex-grow: 1;
+            padding: 5px;
+            min-height: calc(var(--card-h) + 10px);
+        }
+
+        /* リサイズカーソル用 */
+        .zone::after {
+            content: '';
+            position: absolute;
+            right: 2px;
+            bottom: 2px;
+            width: 12px;
+            height: 12px;
+            background: linear-gradient(135deg, transparent 50%, #666 50%, #666 60%, transparent 60%, transparent 70%, #666 70%, #666 80%, transparent 80%);
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        .zone-header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+
+        .zone-title {
+            font-size: 12px;
+            color: #aaa;
+            font-weight: bold;
+            pointer-events: none;
+        }
+
+        .zone-drag-handle {
+            cursor: grab;
+            color: #888;
+            font-size: 18px;
+            padding: 0 5px;
+        }
+
+        .card {
+            width: var(--card-w);
+            height: var(--card-h);
+            aspect-ratio: 7/10;
+            background: #fff;
+            background-size: cover;
+            background-position: center;
+            border-radius: 4px;
+            position: relative;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+            transition: transform 0.1s;
+            z-index: 10;
+            flex-shrink: 0;
+            /* 水平スクロールで潰れないようにする */
+        }
+
+        .card.face-down {
+            background-image: url('https://via.placeholder.com/70x100/333333/cccccc?text=BACK') !important;
+            border: 1px solid #555;
+        }
+
+        .card.selected {
+            outline: 3px solid #ffcc00;
+            transform: translateY(-5px);
+        }
+
+        .card.rotated-90 {
+            transform: rotate(90deg);
+            margin: 0 15px;
+        }
+
+        .card.rotated-180 {
+            transform: rotate(180deg);
+        }
+
+        .top-layer {
+            position: absolute;
+            inset: 0;
+            background-color: #222;
+            background-size: cover;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 5;
+            border: 1px solid #555;
+            transition: transform 0.1s;
+        }
+
+        .top-layer.rotated-90 {
+            transform: rotate(90deg);
+            margin: 0;
+        }
+
+        .top-info {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+            z-index: 6;
+        }
+
+        .top-count {
+            display: none;
+            /* カウント機能廃止に伴い非表示 */
+        }
+
+        .order-badge {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            background: #ffcc00;
+            color: #000;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 12px;
+            border: 1px solid #000;
+            z-index: 30;
+            pointer-events: none;
+        }
+
+        .zone-count-badge {
+            position: absolute;
+            bottom: -5px;
+            left: -5px;
+            background: #000;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 30;
+            border: 1px solid #777;
+        }
+
+        .badge-under {
+            position: absolute;
+            bottom: -5px;
+            right: -5px;
+            background: #0078d7;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 25;
+            border: 1px solid #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .badge-top {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #e91e63;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 25;
+            border: 1px solid #fff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .facedown-badge {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            font-size: 13px;
+            font-weight: bold;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #aaa;
+            z-index: 20;
+            pointer-events: none;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+        }
+
+        /* メモ表示 */
+        .card-memo {
+            position: absolute;
+            bottom: -15px;
+            /* 下側に配置 */
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            z-index: 40;
+            border: 1px solid #555;
+            pointer-events: none;
+            max-width: 90%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        #context-menu {
+            position: fixed;
+            display: none;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            z-index: 9999;
+            min-width: 240px;
+            border-radius: 4px;
+            padding: 5px 0;
+            padding-top: 28px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.7);
+        }
+
+        .menu-close-btn {
+            position: absolute;
+            top: 4px;
+            right: 6px;
+            background: transparent;
+            border: none;
+            color: #888;
+            font-size: 16px;
+            cursor: pointer;
+            line-height: 1;
+            padding: 2px 4px;
+            border-radius: 3px;
+            z-index: 10;
+        }
+
+        .menu-close-btn:hover {
+            color: #fff;
+            background: #a00;
+        }
+
+        .menu-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #eee;
+        }
+
+        .menu-item:hover {
+            background: #0078d7;
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: #444;
+            margin: 4px 0;
+        }
+
+        .menu-group {
+            padding: 5px 15px;
+            font-size: 10px;
+            color: #888;
+            font-weight: bold;
+            background: #222;
+        }
+
+        #modal-overlay {
+            display: none;
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            width: 580px;
+            /* 少し大きく */
+            max-height: calc(100vh - 80px);
+            background: rgba(30, 30, 30, 0.97);
+            z-index: 5000;
+            flex-direction: column;
+            border: 2px solid #555;
+            border-radius: 10px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.8);
+            overflow: hidden;
+            transition: height 0.2s;
+            /* 最小化用 */
+        }
+
+        #modal-overlay.minimized {
+            height: 45px !important;
+            min-height: 45px !important;
+        }
+
+        #modal-overlay.minimized #modal-container>*:not(#modal-header-bar) {
+            display: none !important;
+        }
+
+        #modal-container {
+            background: transparent;
+            padding: 12px;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-sizing: border-box;
+        }
+
+        #modal-header-bar {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+            cursor: grab;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 0;
+            border-radius: 6px;
+            user-select: none;
+        }
+
+        #modal-header-bar:active {
+            cursor: grabbing;
+        }
+
+        #modal-close-x {
+            background: #555;
+            border: none;
+            color: #fff;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+
+        #modal-close-x:hover {
+            background: #c00;
+        }
+
+        .modal-title {
+            color: #fff;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .modal-card-list {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            min-height: 140px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            overflow-x: auto;
+            /* 水平スクロール用 */
+        }
+
+        .modal-card-list.grid-mode {
+            flex-wrap: wrap;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .modal-card-list.horizontal-mode {
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+            overflow-x: auto;
+        }
+
+        .modal-subtitle {
+            color: #aaa;
+            margin: 10px 0 5px 0;
+            font-size: 14px;
+            text-align: center;
+            width: 100%;
+            font-weight: bold;
+        }
+
+        .modal-divider-line {
+            width: 100%;
+            height: 2px;
+            background: #555;
+            margin: 20px 0;
+        }
+
+        .btn-modal {
+            background: #555;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            border: none;
+            font-size: 14px;
+        }
+
+        .btn-modal:hover {
+            background: #777;
+        }
+
+        .btn-modal-primary {
+            background: #0078d7;
+            font-weight: bold;
+        }
+
+        .btn-modal-primary:hover {
+            background: #005a9e;
+        }
+
+        .btn-modal-success {
+            background: #2e7d32;
+            font-weight: bold;
+        }
+
+        .btn-modal-success:hover {
+            background: #1b5e20;
+        }
+
+        #preview-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+        }
+
+        #preview-popup {
+            position: fixed;
+            background: #222;
+            border-radius: 12px;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.9);
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: default;
+            user-select: none;
+            min-width: 120px;
+            min-height: 80px;
+        }
+
+        #preview-popup-header {
+            width: 100%;
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 6px;
+        }
+
+        #preview-close-btn {
+            background: #555;
+            border: none;
+            color: #fff;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+
+        #preview-close-btn:hover {
+            background: #c00;
+        }
+
+        #preview-img {
+            max-width: 85vw;
+            max-height: 82vh;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            object-fit: contain;
+            display: block;
+        }
+
+        #dialog-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 20000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        #dialog-box {
+            background: #2a2a2a;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 450px;
+            width: 90%;
+            border: 2px solid #555;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+        }
+
+        .btn-dialog {
+            padding: 12px 20px;
+            border-radius: 6px;
+            border: none;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            color: white;
+            flex: 1;
+            transition: opacity 0.2s;
+        }
+
+        .btn-dialog:hover {
+            opacity: 0.8;
+        }
+
+        .btn-dialog-a {
+            background: #0078d7;
+        }
+
+        .btn-dialog-b {
+            background: #e91e63;
+        }
+
+        /* === ネット対戦 CSS === */
+        .btn-net {
+            background: #00897b;
+            font-weight: bold;
+        }
+
+        .btn-net:hover {
+            background: #00695c;
+        }
+
+        #net-status-bar {
+            display: none;
+            padding: 6px 15px;
+            background: linear-gradient(90deg, #004d40, #00695c);
+            color: #a7ffeb;
+            font-size: 13px;
+            text-align: center;
+            flex-shrink: 0;
+            border-bottom: 1px solid #00897b;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #net-status-bar.connected {
+            display: flex;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .status-dot.green {
+            background: #69f0ae;
+            box-shadow: 0 0 6px #69f0ae;
+        }
+
+        .status-dot.yellow {
+            background: #ffd54f;
+            box-shadow: 0 0 6px #ffd54f;
+            animation: pulse-dot 1s infinite;
+        }
+
+        @keyframes pulse-dot {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: 0.3
+            }
+        }
+
+        #lobby-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 30000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #lobby-box {
+            background: linear-gradient(145deg, #1a1a2e, #16213e);
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 460px;
+            width: 92%;
+            border: 2px solid #0f3460;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+            text-align: center;
+        }
+
+        #lobby-box h2 {
+            color: #a7ffeb;
+            margin: 0 0 20px 0;
+            font-size: 20px;
+        }
+
+        .lobby-section {
+            margin: 15px 0;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        .lobby-section h3 {
+            color: #80cbc4;
+            margin: 0 0 10px 0;
+            font-size: 15px;
+        }
+
+        .lobby-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #0f3460;
+            border-radius: 8px;
+            background: #0a0a23;
+            color: #e0e0e0;
+            font-size: 16px;
+            text-align: center;
+            box-sizing: border-box;
+            letter-spacing: 3px;
+            font-family: monospace;
+        }
+
+        .lobby-input:focus {
+            outline: none;
+            border-color: #00bcd4;
+        }
+
+        .lobby-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            color: #fff;
+            margin: 6px;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+
+        .lobby-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .lobby-btn:active {
+            transform: scale(0.95);
+        }
+
+        .lobby-btn-create {
+            background: linear-gradient(135deg, #00897b, #00695c);
+        }
+
+        .lobby-btn-join {
+            background: linear-gradient(135deg, #1565c0, #0d47a1);
+        }
+
+        .lobby-btn-close {
+            background: #555;
+            margin-top: 15px;
+        }
+
+        .lobby-btn-disconnect {
+            background: linear-gradient(135deg, #c62828, #b71c1c);
+        }
+
+        .lobby-room-id {
+            font-size: 28px;
+            letter-spacing: 5px;
+            font-family: monospace;
+            color: #a7ffeb;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            cursor: pointer;
+            user-select: all;
+            word-break: break-all;
+        }
+
+        .lobby-status {
+            color: #ffd54f;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+
+        #opponent-field-wrapper {
+            display: none;
+            background: linear-gradient(180deg, #1a0a2e, #1a1a2e);
+            border-bottom: 2px solid #4a148c;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        #opponent-field-wrapper.active {
+            display: block;
+        }
+
+        .opponent-label {
+            padding: 4px 15px;
+            font-size: 12px;
+            color: #ce93d8;
+            background: rgba(74, 20, 140, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #opponent-field {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 12px;
+            padding: 10px 15px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            min-height: 100px;
+            align-items: stretch;
+        }
+
+        #opponent-field .zone {
+            border-color: #4a148c;
+            background: rgba(128, 0, 128, 0.08);
+        }
+
+        #opponent-field .card {
+            cursor: default;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="toolbar">
+        <label class="btn-label btn-primary">画像読込 <input type="file" id="loader" multiple accept="image/*"></label>
+        <button onclick="initGame()">山札作成 (初期化)</button>
+        <button onclick="addZone()" class="btn-success">➕ エリア追加</button>
+        <div
+            style="display:flex; align-items:center; gap:5px; background:#555; padding:0 8px; border-radius:4px; height: 35px; box-sizing: border-box;">
+            <span style="font-size:12px;">カード比率</span>
+            <input type="range" id="card-scale-slider" min="0.4" max="3" step="0.1" value="1"
+                oninput="updateCardScale(this.value)" style="width:70px; cursor:pointer;" title="カードサイズの調整">
+        </div>
+        <button onclick="clearSelection()" class="btn-danger">選択解除</button>
+        <button onclick="undo()" class="btn-warning">↩️ 戻る (Undo)</button>
+        <button onclick="openLobby()" class="btn-net">🌐 ネット対戦</button>
+    </div>
+
+    <div id="net-status-bar">
+        <span id="net-status-dot" class="status-dot green"></span>
+        <span id="net-status-text">接続中...</span>
+        <button onclick="openLobby()"
+            style="padding:3px 10px;font-size:12px;background:#00695c;border:none;color:#fff;border-radius:4px;cursor:pointer;margin-left:8px;">詳細</button>
+    </div>
+
+    <div id="opponent-field-wrapper">
+        <div class="opponent-label">🔴 相手のフィールド</div>
+        <div id="opponent-field"></div>
+    </div>
+
+    <div id="field">
+        <div id="field-top"></div>
+        <div class="resizer" id="resizer-1"></div>
+        <div id="field-middle"></div>
+        <div class="resizer" id="resizer-2"></div>
+        <div id="field-bottom"></div>
+    </div>
+    <div id="context-menu"></div>
+
+    <div id="modal-overlay">
+        <div id="modal-container">
+            <div id="modal-header-bar">
+                <h2 class="modal-title" id="modal-title" style="margin:0; font-size:15px;">確認画面</h2>
+                <button id="modal-close-x" onclick="closeModal()" title="閉じる">✕</button>
+            </div>
+            <div class="modal-buttons" id="modal-buttons"></div>
+            <div id="modal-content" class="modal-card-list"></div>
+
+            <div id="modal-wait-wrapper" style="width: 100%; display: none;">
+                <div id="modal-divider" class="modal-divider-line"></div>
+                <div id="modal-subtitle" class="modal-subtitle">▼ 一時待機エリア (ドラッグ＆ドロップ可能) ▼</div>
+                <div id="modal-wait-content" class="modal-card-list"></div>
+            </div>
+
+            <!-- 盤面エリアへのD&Dドロップゾーン -->
+            <div id="modal-divider2" class="modal-divider-line" style="display:none;"></div>
+            <div id="modal-field-zones" style="display:none; width:100%;"></div>
+        </div>
+    </div>
+
+    <div id="preview-overlay">
+        <div id="preview-popup">
+            <div id="preview-popup-header">
+                <button id="preview-close-btn" onclick="closePreview()" title="閉じる">✕</button>
+            </div>
+            <img id="preview-img" src="" alt="preview">
+        </div>
+    </div>
+
+    <!-- ネット対戦ロビー -->
+    <div id="lobby-overlay">
+        <div id="lobby-box">
+            <h2>🌐 ネット対戦</h2>
+            <div id="lobby-content"></div>
+            <button class="lobby-btn lobby-btn-close" onclick="closeLobby()">閉じる</button>
+        </div>
+    </div>
+
+    <div id="dialog-overlay">
+        <div id="dialog-box">
+            <h3 style="margin-top:0; color:#fff; text-align:center; font-size:16px; line-height:1.5;" id="dialog-msg">
+            </h3>
+            <div style="display:flex; gap:15px; margin-top:25px;">
+                <button id="dialog-btn-a" class="btn-dialog btn-dialog-a">A</button>
+                <button id="dialog-btn-b" class="btn-dialog btn-dialog-b">B</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let cardIdCounter = 1;
+        let pool = [];
+        let selectedCardIds = [];
+        let modalWaitCards = [];
+        let stateHistory = [];
+
+        // 手札マスク用フラグ
+        let isHandMasked = false;
+
+        let zones = [
+            { id: 'deck', name: '山札', type: 'deck', isFixed: true, cards: [] },
+            { id: 'hand', name: '手札', type: 'normal', isFixed: true, cards: [] },
+            { id: 'grave', name: '捨て札', type: 'grave', isFixed: true, cards: [] },
+            { id: 'play', name: 'プレイエリア', type: 'normal', isFixed: true, cards: [] },
+            { id: 'wait', name: '待機エリア', type: 'normal', isFixed: true, cards: [] }
+        ];
+
+        const field = document.getElementById('field');
+        const menu = document.getElementById('context-menu');
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalContent = document.getElementById('modal-content');
+        const modalWaitContent = document.getElementById('modal-wait-content');
+        const modalWaitWrapper = document.getElementById('modal-wait-wrapper');
+        const modalTitle = document.getElementById('modal-title');
+        const modalButtons = document.getElementById('modal-buttons');
+
+        function toggleHandMask() {
+            isHandMasked = !isHandMasked;
+            render();
+        }
+
+        function askAB(message, textA, textB) {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('dialog-overlay');
+                document.getElementById('dialog-msg').innerHTML = message.replace(/\n/g, '<br>');
+
+                const btnA = document.getElementById('dialog-btn-a');
+                const btnB = document.getElementById('dialog-btn-b');
+                btnA.textContent = `A. ${textA}`;
+                btnB.textContent = `B. ${textB}`;
+
+                btnA.replaceWith(btnA.cloneNode(true));
+                btnB.replaceWith(btnB.cloneNode(true));
+                const newBtnA = document.getElementById('dialog-btn-a');
+                const newBtnB = document.getElementById('dialog-btn-b');
+
+                newBtnA.onclick = () => { overlay.style.display = 'none'; resolve('A'); };
+                newBtnB.onclick = () => { overlay.style.display = 'none'; resolve('B'); };
+
+                overlay.style.display = 'flex';
+            });
+        }
+
+        function saveState() {
+            stateHistory.push({
+                zones: JSON.parse(JSON.stringify(zones)),
+                modalWaitCards: JSON.parse(JSON.stringify(modalWaitCards))
+            });
+            if (stateHistory.length > 20) stateHistory.shift();
+        }
+
+        function undo() {
+            if (stateHistory.length > 0) {
+                const prevState = stateHistory.pop();
+                zones = prevState.zones;
+                modalWaitCards = prevState.modalWaitCards;
+                selectedCardIds = [];
+                closeModal();
+                render();
+            }
+        }
+
+        function openPreview(imgSrc) {
+            const overlay = document.getElementById('preview-overlay');
+            const popup = document.getElementById('preview-popup');
+            document.getElementById('preview-img').src = imgSrc;
+            overlay.style.display = 'block';
+            // 初期位置：画面中央
+            const pw = Math.min(window.innerWidth * 0.88, 700);
+            popup.style.left = Math.max(10, (window.innerWidth - pw) / 2) + 'px';
+            popup.style.top = Math.max(10, (window.innerHeight - pw * 1.1) / 2) + 'px';
+            popup.style.width = pw + 'px';
+            // ドラッグ可能にする
+            makeDraggable(popup);
+        }
+        function closePreview() {
+            document.getElementById('preview-overlay').style.display = 'none';
+        }
+        function makeDraggable(el) {
+            el._dragHandler && el.removeEventListener('mousedown', el._dragHandler);
+            let startX, startY, origLeft, origTop;
+            const onMouseMove = (e) => {
+                const nx = origLeft + (e.clientX - startX);
+                const ny = origTop + (e.clientY - startY);
+                el.style.left = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, nx)) + 'px';
+                el.style.top = Math.max(0, Math.min(window.innerHeight - el.offsetHeight, ny)) + 'px';
+            };
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                el.style.cursor = 'grab';
+            };
+            el._dragHandler = (e) => {
+                if (e.target.id === 'preview-close-btn' || e.target.tagName === 'IMG') return;
+                startX = e.clientX; startY = e.clientY;
+                origLeft = parseInt(el.style.left) || 0;
+                origTop = parseInt(el.style.top) || 0;
+                el.style.cursor = 'grabbing';
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            };
+            el.style.cursor = 'grab';
+            el.addEventListener('mousedown', el._dragHandler);
+        }
+
+        function showMenuAt(e, menuElement) {
+            menuElement.style.display = 'block';
+            menuElement.style.position = 'fixed';
+            // 既存の×ボタンを削除して再追加
+            const existing = menuElement.querySelector('.menu-close-btn');
+            if (existing) existing.remove();
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'menu-close-btn';
+            closeBtn.textContent = '×';
+            closeBtn.title = '閉じる';
+            closeBtn.onclick = (ev) => { ev.stopPropagation(); menuElement.style.display = 'none'; };
+            menuElement.insertBefore(closeBtn, menuElement.firstChild);
+
+            let x = e.clientX;
+            let y = e.clientY;
+            const rect = menuElement.getBoundingClientRect();
+
+            if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 10;
+            if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 10;
+
+            menuElement.style.left = `${x}px`;
+            menuElement.style.top = `${y}px`;
+        }
+
+        function addZone() {
+            const typeChoice = prompt("追加するエリアの種類を選んでください\n1: 通常エリア\n2: プレイエリア2\n3: EX山札\n4: 第2山札", "1");
+            let name = "新エリア";
+            let type = "normal";
+            let id = "z_" + Date.now();
+
+            if (typeChoice === "2") {
+                name = "プレイエリア2";
+                type = "play";
+                id = "play2";
+            } else if (typeChoice === "3") {
+                name = "EX山札";
+                type = "deck"; // 一覧表示機能などは山札と同じ
+                id = "ex_deck";
+            } else if (typeChoice === "4") {
+                name = "第2山札";
+                type = "deck";
+                id = "deck2";
+            } else {
+                name = prompt("エリアの名前を入力してください", "新エリア");
+                if (!name) return;
+            }
+
+            saveState();
+            zones.push({ id: id, name: name, type: type, isFixed: false, cards: [] });
+            render();
+        }
+
+        function createCard(imgData) {
+            return {
+                id: cardIdCounter++,
+                img: imgData,
+                faceDown: true,
+                rot: 0,
+                stack: [],
+                topCards: [],
+                memo: ""
+            };
+        }
+
+        /**
+         * 入力文字列の正規化（全角→半角、数値変換）
+         */
+        function normalizeInput(val) {
+            if (!val) return null;
+            // 全角数字・文字を半角へ
+            const n = val.normalize('NFKC');
+            if (n.toUpperCase() === 'ALL') return 'ALL';
+            const parsed = parseInt(n);
+            return isNaN(parsed) ? null : parsed;
+        }
+
+        function findCardLocation(cardId) {
+            for (let z of zones) {
+                for (let i = 0; i < z.cards.length; i++) {
+                    if (z.cards[i].id === cardId) return { zone: z, index: i, card: z.cards[i] };
+                }
+            }
+            return null;
+        }
+
+        async function processStackedCards(cards) {
+            const hasStacks = cards.some(c => (c.stack && c.stack.length > 0) || (c.topCards && c.topCards.length > 0));
+            if (!hasStacks) return cards;
+
+            const choice = await askAB("重なっているカードが含まれています。\nどのように移動させますか？", "重なったまま移動する", "バラバラにして移動する");
+            if (choice === 'A') return cards;
+
+            let flattened = [];
+            cards.forEach(c => {
+                if (c.topCards) flattened.push(...c.topCards);
+                flattened.push(c);
+                if (c.stack) flattened.push(...c.stack);
+                c.topCards = [];
+                c.stack = [];
+            });
+            return flattened;
+        }
+
+        function render() {
+            const fieldTop = document.getElementById('field-top');
+            const fieldMiddle = document.getElementById('field-middle');
+            const fieldBottom = document.getElementById('field-bottom');
+            if (fieldTop) fieldTop.innerHTML = '';
+            if (fieldMiddle) fieldMiddle.innerHTML = '';
+            if (fieldBottom) fieldBottom.innerHTML = '';
+
+            zones.forEach(z => {
+                const zEl = document.createElement('div');
+                zEl.className = 'zone';
+                if (z.type === 'grave') zEl.classList.add('grave');
+
+                // 山札（追加分含む）と捨て札エリアの余白縮小
+                if (z.type === 'deck' || z.type === 'grave') {
+                    zEl.style.flexGrow = "0";
+                    zEl.style.minWidth = "100px";
+                }
+
+                // 保存されたサイズを復元
+                if (z.width) zEl.style.width = z.width;
+                if (z.height) zEl.style.height = z.height;
+
+                zEl.innerHTML = `<div class="zone-header">
+                <span class="zone-title">${z.name}</span>
+                <span class="zone-drag-handle" draggable="true" title="ドラッグしてエリアを移動">≡</span>
+            </div>
+            <div class="zone-cards"></div>`;
+                const zoneCards = zEl.querySelector('.zone-cards');
+
+                const ro = new ResizeObserver(() => {
+                    const w = zEl.style.width;
+                    const h = zEl.style.height;
+                    if (w) z.width = w;
+                    if (h) z.height = h;
+                });
+                ro.observe(zEl);
+
+                const handle = zEl.querySelector('.zone-drag-handle');
+                handle.ondragstart = e => {
+                    e.dataTransfer.setData('zone', z.id);
+                    e.stopPropagation();
+                };
+
+                zEl.ondragover = e => e.preventDefault();
+                zEl.ondrop = async e => {
+                    e.preventDefault();
+                    const draggedZoneId = e.dataTransfer.getData('zone');
+                    if (draggedZoneId && draggedZoneId !== z.id) {
+                        saveState();
+                        const fromIdx = zones.findIndex(zone => zone.id === draggedZoneId);
+                        const toIdx = zones.findIndex(zone => zone.id === z.id);
+                        const movedZone = zones.splice(fromIdx, 1)[0];
+                        zones.splice(toIdx, 0, movedZone);
+                        render();
+                        return;
+                    }
+
+                    const draggedId = parseInt(e.dataTransfer.getData('text/plain'));
+                    if (isNaN(draggedId)) return;
+
+                    if (z.type === 'deck') {
+                        const loc = findCardLocation(draggedId);
+                        if (loc && loc.zone.id === z.id) return;
+                        showDeckDropMenu(e, draggedId, z);
+                        return;
+                    }
+
+                    // 捨て札は重ならない仕様のため、カード上にドロップしてもそのエリアへの移動として扱う
+                    if (selectedCardIds.includes(draggedId) && selectedCardIds.length > 1) {
+                        await moveSelectedCards(z.id);
+                    } else {
+                        await moveCardToZone(draggedId, z.id);
+                    }
+                };
+
+                zEl.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); showZoneMenu(e, z); };
+
+                // 捨て札は全表示、山札のみトップ1枚表示
+                const cardsToRender = (z.type === 'deck') ? z.cards.slice(0, 1) : z.cards;
+                let faceDownIndex = 1;
+
+                cardsToRender.forEach(c => {
+                    const cEl = document.createElement('div');
+                    const isSelected = selectedCardIds.includes(c.id);
+
+                    let visualFaceDown = c.faceDown;
+                    if (z.id === 'hand' && isHandMasked) {
+                        visualFaceDown = true;
+                    }
+
+                    cEl.className = `card ${visualFaceDown ? 'face-down' : ''} ${isSelected ? 'selected' : ''} rotated-${c.rot}`;
+                    if (!visualFaceDown) cEl.style.backgroundImage = `url(${c.img})`;
+                    cEl.draggable = true;
+
+                    if (isSelected) {
+                        const badge = document.createElement('div');
+                        badge.className = 'order-badge';
+                        badge.textContent = selectedCardIds.indexOf(c.id) + 1;
+                        cEl.appendChild(badge);
+                    }
+
+                    if (visualFaceDown && z.type !== 'deck') {
+                        const fdBadge = document.createElement('div');
+                        fdBadge.className = 'facedown-badge';
+                        fdBadge.textContent = faceDownIndex++;
+                        cEl.appendChild(fdBadge);
+                    }
+
+                    if (z.type === 'deck') {
+                        const zoneCountBadge = document.createElement('div');
+                        zoneCountBadge.className = 'zone-count-badge';
+                        zoneCountBadge.textContent = `${z.cards.length}枚`;
+                        cEl.appendChild(zoneCountBadge);
+                    }
+
+                    if (c.stack && c.stack.length > 0) {
+                        const sBadge = document.createElement('div');
+                        sBadge.className = 'badge-under';
+                        sBadge.textContent = `下: ${c.stack.length}枚`;
+                        cEl.appendChild(sBadge);
+                    }
+
+                    if (c.topCards && c.topCards.length > 0) {
+                        const latestTopCard = c.topCards[c.topCards.length - 1];
+                        const topLayer = document.createElement('div');
+                        topLayer.className = 'top-layer';
+                        if (latestTopCard.faceDown) {
+                            topLayer.style.backgroundImage = "url('https://via.placeholder.com/70x100/333333/cccccc?text=BACK')";
+                            topLayer.classList.add('rotated-90');
+                        } else {
+                            topLayer.style.backgroundImage = `url(${latestTopCard.img})`;
+                        }
+                        cEl.appendChild(topLayer);
+                        const tBadge = document.createElement('div');
+                        tBadge.className = 'badge-top';
+                        tBadge.textContent = `上: ${c.topCards.length}枚`;
+                        cEl.appendChild(tBadge);
+                    }
+
+                    // メモの表示
+                    if (c.memo) {
+                        const memoEl = document.createElement('div');
+                        memoEl.className = 'card-memo';
+                        memoEl.textContent = c.memo;
+                        cEl.appendChild(memoEl);
+                    }
+
+                    cEl.ondragstart = e => { e.dataTransfer.setData('text/plain', c.id); };
+                    cEl.ondragover = e => { e.preventDefault(); e.stopPropagation(); };
+                    cEl.ondrop = async e => {
+                        e.preventDefault(); e.stopPropagation();
+                        const draggedId = parseInt(e.dataTransfer.getData('text/plain'));
+                        if (isNaN(draggedId) || draggedId === c.id) return;
+
+                        // 捨て札エリアのカード上にドロップした場合は、単にそのエリアへの移動とする（重ねない）
+                        if (z.type === 'grave') {
+                            if (selectedCardIds.includes(draggedId) && selectedCardIds.length > 1) { await moveSelectedCards(z.id); }
+                            else { await moveCardToZone(draggedId, z.id); }
+                            return;
+                        }
+
+                        if (z.type === 'deck') {
+                            showDeckDropMenu(e, draggedId, z);
+                            return;
+                        }
+
+                        if (selectedCardIds.includes(draggedId) && selectedCardIds.length > 1) {
+                            showDropChoiceMenuForMulti(e, selectedCardIds, c.id);
+                        } else {
+                            showDropChoiceMenu(e, draggedId, c.id);
+                        }
+                    };
+
+                    cEl.onclick = e => {
+                        e.stopPropagation();
+                        const idx = selectedCardIds.indexOf(c.id);
+                        if (idx === -1) { selectedCardIds.push(c.id); }
+                        else { selectedCardIds.splice(idx, 1); }
+                        render();
+                    };
+
+                    cEl.oncontextmenu = e => {
+                        e.preventDefault(); e.stopPropagation();
+                        if (z.type === 'deck') {
+                            showZoneMenu(e, z);
+                        } else {
+                            showCardMenu(e, c, cEl);
+                        }
+                    };
+
+                    zoneCards.appendChild(cEl);
+                });
+
+                // レイアウト振り分け: play/play2/ex_deck/deck2 は一番上
+                const topZoneIds = ['play', 'play2', 'ex_deck', 'deck2'];
+                if (z.id === 'hand') {
+                    if (fieldBottom) fieldBottom.appendChild(zEl);
+                } else if (topZoneIds.includes(z.id) || z.type === 'play') {
+                    if (fieldTop) fieldTop.appendChild(zEl);
+                } else {
+                    if (fieldMiddle) fieldMiddle.appendChild(zEl);
+                }
+            });
+        }
+
+        async function moveCardToZone(cardId, targetZoneId) {
+            const targetZone = zones.find(z => z.id === targetZoneId);
+            if (!targetZone) return;
+            const loc = findCardLocation(cardId);
+            if (!loc) return;
+
+            if (loc.zone.id === targetZoneId) {
+                if (targetZone.type === 'deck' || targetZone.type === 'grave') {
+                    saveState();
+                    const card = loc.zone.cards.splice(loc.index, 1)[0];
+                    targetZone.cards.unshift(card);
+                    render();
+                }
+                return;
+            }
+
+            let hasStacks = (loc.card.stack && loc.card.stack.length > 0) || (loc.card.topCards && loc.card.topCards.length > 0);
+            let flatten = false;
+            if (hasStacks) {
+                const choice = await askAB("重なっているカードが含まれています。\nどのように移動させますか？", "重なったまま移動する", "バラバラにして移動する");
+                flatten = (choice === 'B');
+            }
+
+            saveState();
+            const card = loc.zone.cards.splice(loc.index, 1)[0];
+
+            let cardsToMove = [];
+            if (flatten) {
+                if (card.topCards) cardsToMove.push(...card.topCards);
+                cardsToMove.push(card);
+                if (card.stack) cardsToMove.push(...card.stack);
+                card.topCards = []; card.stack = [];
+            } else {
+                cardsToMove.push(card);
+            }
+
+            cardsToMove.forEach(c => {
+                if (targetZone.type === 'deck') { c.faceDown = true; c.rot = 0; targetZone.cards.unshift(c); }
+                else if (targetZone.type === 'grave') { c.faceDown = false; c.rot = 0; targetZone.cards.unshift(c); }
+                else if (targetZone.id === 'hand') { c.faceDown = false; c.rot = 0; targetZone.cards.push(c); }
+                else { targetZone.cards.push(c); }
+            });
+            render();
+        }
+
+        async function moveSelectedCards(targetZoneId) {
+            const targetZone = zones.find(z => z.id === targetZoneId);
+            if (!targetZone || selectedCardIds.length === 0) return;
+
+            const validIds = selectedCardIds.filter(id => {
+                const loc = findCardLocation(id);
+                return loc && loc.zone.id !== targetZoneId;
+            });
+            if (validIds.length === 0) return;
+
+            let hasStacks = false;
+            validIds.forEach(id => {
+                const loc = findCardLocation(id);
+                if (loc && ((loc.card.stack && loc.card.stack.length > 0) || (loc.card.topCards && loc.card.topCards.length > 0))) hasStacks = true;
+            });
+
+            let flatten = false;
+            if (hasStacks) {
+                const choice = await askAB("重なっているカードが含まれています。\nどのように移動させますか？", "重なったまま一括移動", "すべてバラバラにして移動");
+                flatten = (choice === 'B');
+            }
+
+            saveState();
+
+            const idsToProcess = (targetZone.type === 'deck' || targetZone.type === 'grave') ? validIds.reverse() : validIds;
+            let cardsToMove = [];
+
+            idsToProcess.forEach(id => {
+                const loc = findCardLocation(id);
+                if (loc) {
+                    const card = loc.zone.cards.splice(loc.index, 1)[0];
+                    if (flatten) {
+                        if (card.topCards) cardsToMove.push(...card.topCards);
+                        cardsToMove.push(card);
+                        if (card.stack) cardsToMove.push(...card.stack);
+                        card.topCards = []; card.stack = [];
+                    } else {
+                        cardsToMove.push(card);
+                    }
+                }
+            });
+
+            cardsToMove.forEach(c => {
+                if (targetZone.type === 'deck') { c.faceDown = true; c.rot = 0; targetZone.cards.unshift(c); }
+                else if (targetZone.type === 'grave') { c.faceDown = false; c.rot = 0; targetZone.cards.unshift(c); }
+                else if (targetZone.id === 'hand') { c.faceDown = false; c.rot = 0; targetZone.cards.push(c); }
+                else { targetZone.cards.push(c); }
+            });
+
+            clearSelection();
+            render();
+        }
+
+        function clearSelection() {
+            if (selectedCardIds.length > 0) {
+                selectedCardIds = [];
+                render();
+            }
+        }
+
+        // 山札にドラッグした時の特殊メニュー（重ね判定なし、上下のみ）
+        function showDeckDropMenu(e, draggedId, deckZone) {
+            menu.innerHTML = '';
+            addMenuGroup('山札の上下に置く');
+            addMenuItem('🔝 山札の一番上に置く (裏向き)', () => moveToDeckEdge(draggedId, deckZone, 'top', true));
+            addMenuItem('🔝 山札の一番上に置く (表向き)', () => moveToDeckEdge(draggedId, deckZone, 'top', false));
+            addMenuItem('🔜 山札の一番下に置く (裏向き)', () => moveToDeckEdge(draggedId, deckZone, 'bottom', true));
+            addMenuItem('🔜 山札の一番下に置く (表向き)', () => moveToDeckEdge(draggedId, deckZone, 'bottom', false));
+            showMenuAt(e, menu);
+        }
+        async function moveToDeckEdge(cardId, deckZone, position, faceDown) {
+            const loc = findCardLocation(cardId);
+            if (!loc) return;
+            saveState();
+            const card = loc.zone.cards.splice(loc.index, 1)[0];
+            card.faceDown = faceDown; card.rot = 0;
+            if (position === 'top') deckZone.cards.unshift(card);
+            else deckZone.cards.push(card);
+            render();
+        }
+
+        function showDropChoiceMenu(e, draggedId, targetId) {
+            menu.innerHTML = '';
+            addMenuGroup('重ねる処理の選択');
+            addMenuItem('🔽 表向きで「下」に置く', () => applyDropStack(draggedId, targetId, 'under', false));
+            addMenuItem('🔽 裏向きで「下」に置く', () => applyDropStack(draggedId, targetId, 'under', true));
+            addMenuItem('🔼 表向きで「上」に置く', () => applyDropStack(draggedId, targetId, 'top', false));
+            addMenuItem('🔼 裏向きで「上」に置く', () => applyDropStack(draggedId, targetId, 'top', true));
+            showMenuAt(e, menu);
+        }
+
+        function showDropChoiceMenuForMulti(e, draggedIds, targetId) {
+            menu.innerHTML = '';
+            addMenuGroup(`選択中の${draggedIds.length}枚を重ねる`);
+            addMenuItem('🔽 表向きで「下」に置く', () => applyDropStackMulti(draggedIds, targetId, 'under', false));
+            addMenuItem('🔽 裏向きで「下」に置く', () => applyDropStackMulti(draggedIds, targetId, 'under', true));
+            addMenuItem('🔼 表向きで「上」に置く', () => applyDropStackMulti(draggedIds, targetId, 'top', false));
+            addMenuItem('🔼 裏向きで「上」に置く', () => applyDropStackMulti(draggedIds, targetId, 'top', true));
+            showMenuAt(e, menu);
+        }
+
+        async function applyDropStack(draggedId, targetId, position, isFaceDown) {
+            const draggedLoc = findCardLocation(draggedId);
+            const targetLoc = findCardLocation(targetId);
+            if (!draggedLoc || !targetLoc) return;
+
+            let hasStacks = (draggedLoc.card.stack && draggedLoc.card.stack.length > 0) || (draggedLoc.card.topCards && draggedLoc.card.topCards.length > 0);
+            let flatten = false;
+            if (hasStacks) {
+                const choice = await askAB("重なっているカードを重ねようとしています。\nどのように重ねますか？", "そのままの塊で重ねる", "バラバラに分解して重ねる");
+                flatten = (choice === 'B');
+            }
+
+            saveState();
+            const card = draggedLoc.zone.cards.splice(draggedLoc.index, 1)[0];
+
+            let cardsToMove = [];
+            if (flatten) {
+                if (card.topCards) cardsToMove.push(...card.topCards);
+                cardsToMove.push(card);
+                if (card.stack) cardsToMove.push(...card.stack);
+                card.topCards = []; card.stack = [];
+            } else {
+                cardsToMove.push(card);
+            }
+
+            cardsToMove.forEach(c => {
+                c.faceDown = isFaceDown; c.rot = 0;
+                if (position === 'under') {
+                    if (!targetLoc.card.stack) targetLoc.card.stack = [];
+                    targetLoc.card.stack.push(c);
+                } else if (position === 'top') {
+                    if (!targetLoc.card.topCards) targetLoc.card.topCards = [];
+                    targetLoc.card.topCards.push(c);
+                }
+            });
+            render();
+        }
+
+        async function applyDropStackMulti(draggedIds, targetId, position, isFaceDown) {
+            const targetLoc = findCardLocation(targetId);
+            if (!targetLoc) return;
+
+            let rawCards = [];
+            draggedIds.forEach(id => {
+                const loc = findCardLocation(id);
+                if (loc) rawCards.push(loc.card);
+            });
+
+            let hasStacks = false;
+            rawCards.forEach(c => {
+                if ((c.stack && c.stack.length > 0) || (c.topCards && c.topCards.length > 0)) hasStacks = true;
+            });
+
+            let flatten = false;
+            if (hasStacks) {
+                const choice = await askAB("重なっているカードが含まれています。\nどのように重ねますか？", "そのままの塊で重ねる", "すべてバラバラにして重ねる");
+                flatten = (choice === 'B');
+            }
+
+            saveState();
+            let cardsToMove = [];
+            draggedIds.forEach(id => {
+                const loc = findCardLocation(id);
+                if (loc) {
+                    const card = loc.zone.cards.splice(loc.index, 1)[0];
+                    if (flatten) {
+                        if (card.topCards) cardsToMove.push(...card.topCards);
+                        cardsToMove.push(card);
+                        if (card.stack) cardsToMove.push(...card.stack);
+                        card.topCards = []; card.stack = [];
+                    } else {
+                        cardsToMove.push(card);
+                    }
+                }
+            });
+
+            cardsToMove.forEach(c => {
+                c.faceDown = isFaceDown; c.rot = 0;
+                if (position === 'under') {
+                    if (!targetLoc.card.stack) targetLoc.card.stack = [];
+                    targetLoc.card.stack.push(c);
+                } else if (position === 'top') {
+                    if (!targetLoc.card.topCards) targetLoc.card.topCards = [];
+                    targetLoc.card.topCards.push(c);
+                }
+            });
+            clearSelection();
+            render();
+        }
+
+        function lookAtTopCards(zone) {
+            const countInput = prompt("上から何枚見ますか？ (例: 3)", "3");
+            const count = normalizeInput(countInput);
+            if (count === 'ALL') {
+                saveState();
+                modalWaitCards.push(...zone.cards.splice(0));
+                currentModalMode = 'peek'; currentViewerZone = zone; updateModalView(); openModalCommon();
+            } else if (count > 0) {
+                if (zone.cards.length < count) return alert('山札の枚数が足りません！');
+                saveState();
+                for (let i = 0; i < count; i++) {
+                    modalWaitCards.push(zone.cards.shift());
+                }
+                currentModalMode = 'peek';
+                currentViewerZone = zone;
+                updateModalView();
+                openModalCommon();
+            }
+        }
+
+        async function moveMultipleFromDeck(zone) {
+            const countInput = prompt("移動する枚数を入力してください (全枚数の場合は 'ALL' と入力)", "1");
+            const count = normalizeInput(countInput);
+            if (count === null) return;
+
+            const actualCount = count === 'ALL' ? zone.cards.length : Math.min(count, zone.cards.length);
+            if (actualCount <= 0) return alert('枚数が足りません');
+
+            // 移動先の選択肢を作成
+            const targetZones = zones.filter(z => z.id !== zone.id);
+            if (targetZones.length === 0) return alert('移動可能なエリアがありません');
+
+            let msg = `${actualCount}枚をどのエリアに移動しますか？\n数値で選んでください：\n`;
+            targetZones.forEach((z, i) => {
+                msg += `${i + 1}: ${z.name}\n`;
+            });
+
+            const choiceInput = prompt(msg, "1");
+            const choiceIdx = parseInt(choiceInput) - 1;
+
+            if (isNaN(choiceIdx) || choiceIdx < 0 || choiceIdx >= targetZones.length) {
+                return alert('正しく選択されませんでした');
+            }
+
+            const targetZone = targetZones[choiceIdx];
+            const choiceFace = await askAB("カードの向きを選んでください", "表向きで移動", "裏向きで移動");
+
+            saveState();
+            for (let i = 0; i < actualCount; i++) {
+                const c = zone.cards.shift();
+                c.faceDown = (choiceFace === 'B');
+                c.rot = 0;
+                targetZone.cards.push(c);
+            }
+            render();
+            alert(`${actualCount}枚を「${targetZone.name}」へ移動しました。`);
+        }
+
+        function drawCards(zone) {
+            const countInput = prompt("何枚引きますか？ (全枚数の場合は 'ALL' と入力)", "1");
+            const count = normalizeInput(countInput);
+            if (count === 'ALL') {
+                saveState();
+                const handZone = zones.find(z => z.id === 'hand');
+                while (zone.cards.length > 0) {
+                    const c = zone.cards.shift();
+                    c.faceDown = false; c.rot = 0; handZone.cards.push(c);
+                }
+                render();
+            } else if (count > 0) {
+                if (zone.cards.length < count) return alert('山札の枚数が足りません！');
+                saveState();
+                const handZone = zones.find(z => z.id === 'hand');
+                if (!handZone) return alert('手札エリアが見つかりません');
+                for (let i = 0; i < count; i++) {
+                    const c = zone.cards.shift();
+                    c.faceDown = false;
+                    c.rot = 0;
+                    handZone.cards.push(c);
+                }
+                render();
+            }
+        }
+
+        async function discardRandomHandToWait() {
+            const handZone = zones.find(z => z.id === 'hand');
+            const waitZone = zones.find(z => z.id === 'wait');
+            if (!handZone || !waitZone) return;
+            if (handZone.cards.length === 0) return alert("手札がありません！");
+
+            saveState();
+            const randomIdx = Math.floor(Math.random() * handZone.cards.length);
+            const card = handZone.cards.splice(randomIdx, 1)[0];
+
+            let cardsToMove = [card];
+            if ((card.stack && card.stack.length > 0) || (card.topCards && card.topCards.length > 0)) {
+                const choice = await askAB("ランダム選択されたカードに重なりがあります。\nどう移動させますか？", "重なったまま移動", "バラバラにする");
+                if (choice === 'B') {
+                    cardsToMove = [];
+                    if (card.topCards) cardsToMove.push(...card.topCards);
+                    cardsToMove.push(card);
+                    if (card.stack) cardsToMove.push(...card.stack);
+                    card.topCards = []; card.stack = [];
+                }
+            }
+
+            cardsToMove.forEach(c => {
+                c.faceDown = false;
+                c.rot = 0;
+                waitZone.cards.push(c);
+            });
+            render();
+        }
+
+        function showZoneMenu(e, zone) {
+            menu.innerHTML = '';
+
+            if (selectedCardIds.length > 0) {
+                addMenuItem(`📥 選択中の ${selectedCardIds.length} 枚をここに移動`, () => moveSelectedCards(zone.id));
+                addDivider();
+            }
+
+            if (zone.id === 'hand') {
+                addMenuItem(isHandMasked ? '🎴 手札を見る (マスク解除)' : '🎴 手札を隠す (マスク)', () => toggleHandMask());
+                addDivider();
+                if (zone.cards.length > 0) {
+                    addMenuItem('🎲 手札からランダムに1枚選ぶ', () => {
+                        const randomIdx = Math.floor(Math.random() * zone.cards.length);
+                        selectedCardIds = [zone.cards[randomIdx].id];
+                        render();
+                    });
+                    addMenuItem('🎲 ランダムハンデス (捨て札へ移動)', () => {
+                        const randomIdx = Math.floor(Math.random() * zone.cards.length);
+                        const card = zone.cards[randomIdx];
+                        const graveZone = zones.find(z => z.type === 'grave');
+                        if (graveZone) {
+                            saveState();
+                            const c = zone.cards.splice(randomIdx, 1)[0];
+                            c.faceDown = false; c.rot = 0;
+                            graveZone.cards.unshift(c);
+                            render();
+                        }
+                    });
+                    addDivider();
+                }
+            }
+
+            addMenuGroup('エリア操作');
+            if (zone.type === 'deck' || zone.type === 'grave') {
+                if (zone.type === 'deck') {
+                    addMenuItem('🔀 シャッフル', () => { saveState(); zone.cards.sort(() => Math.random() - 0.5); render(); });
+                    addMenuItem('🃏 指定枚数引く (手札へ)', () => drawCards(zone));
+                    addMenuItem('📥 指定枚数を他エリアへ移動', () => moveMultipleFromDeck(zone));
+                    addMenuItem('👀 上から指定枚数を見る (めくる)', () => lookAtTopCards(zone));
+                }
+                addMenuItem('🔍 中身を一覧表示', () => openZoneViewerModal(zone));
+                addDivider();
+            }
+
+            // プレイエリア系での画像読み込みを削除する指示への対応
+            // zone.type === 'play' の場合の設定を調整
+            if (zone.type === 'play') {
+                // ここには特に追加しない（要望により削除されたため）
+            }
+
+            if (!zone.isFixed) {
+                addMenuGroup('エリア管理 (カスタム)');
+                addMenuItem('✎ 名称変更', () => {
+                    const newName = prompt("新しいエリア名を入力してください", zone.name);
+                    if (newName) { saveState(); zone.name = newName; render(); }
+                });
+                addMenuItem('❌ このエリアを削除', async () => {
+                    if (zone.cards.length > 0) {
+                        const choice = await askAB(`「${zone.name}」にはカードがあります。\nエリアごと削除しますか？`, "はい（削除する）", "いいえ（キャンセル）");
+                        if (choice === 'B') return;
+                    }
+                    saveState();
+                    zones = zones.filter(z => z.id !== zone.id);
+                    render();
+                });
+            }
+            showMenuAt(e, menu);
+        }
+
+        function showCardMenu(e, card, cEl) {
+            menu.innerHTML = '';
+            const isMulti = selectedCardIds.includes(card.id) && selectedCardIds.length > 1;
+            const targets = isMulti ? selectedCardIds.map(id => findCardLocation(id)?.card).filter(c => c) : [card];
+
+            // 画像拡大（裏向きでない場合、右クリックメニューに追加）
+            if (!card.faceDown && !isMulti) {
+                addMenuItem('🔍 画像を大きく表示', () => openPreview(card.img));
+                addDivider();
+            }
+
+            if (card.faceDown && !isMulti) {
+                addMenuItem('👁️ こっそり確認 (3秒間ピーピング)', () => {
+                    const hadRotated = cEl.classList.contains('rotated-90');
+                    cEl.classList.remove('face-down', 'rotated-90');
+                    cEl.style.backgroundImage = `url(${card.img})`;
+                    cEl.style.boxShadow = "0 0 15px #00ffff";
+                    setTimeout(() => {
+                        cEl.classList.add('face-down');
+                        if (hadRotated) cEl.classList.add('rotated-90');
+                        cEl.style.boxShadow = "";
+                    }, 3000);
+                });
+                addDivider();
+            }
+
+            addMenuGroup(isMulti ? `向きの変更 (${targets.length}枚 一括)` : '向きの変更');
+            addMenuItem('⬆️ 縦向き (0°)', () => { saveState(); targets.forEach(c => c.rot = 0); render(); });
+            addMenuItem('➡️ 横向き (90°)', () => { saveState(); targets.forEach(c => c.rot = 90); render(); });
+            addMenuItem('⬇️ 逆向き (180°)', () => { saveState(); targets.forEach(c => c.rot = 180); render(); });
+
+            addDivider();
+            addMenuGroup('メモ機能');
+            addMenuItem('✎ メモを編集', () => {
+                const firstMemo = targets[0].memo || "";
+                const newMemo = prompt("メモを入力してください", firstMemo);
+                if (newMemo !== null) { saveState(); targets.forEach(c => c.memo = newMemo); render(); }
+            });
+            addMenuItem('🔄 メモをクリア', () => {
+                saveState(); targets.forEach(c => c.memo = ""); render();
+            });
+
+            addDivider();
+            addMenuGroup(isMulti ? `表裏の変更 (${targets.length}枚 一括)` : '表裏の変更');
+            addMenuItem('👁️/🌚 表裏を切り替え', () => { saveState(); targets.forEach(c => c.faceDown = !c.faceDown); render(); });
+
+            addDivider();
+            addMenuGroup('特殊操作 (重ねる)');
+            addMenuItem('📥 山札から指定枚数を「下」に重ねる', async () => {
+                const countInput = prompt("「下」に重ねる枚数を入力してください", "1");
+                const count = parseInt(countInput);
+                if (!isNaN(count) && count > 0) {
+                    const choice = await askAB("重ねるカードの向きを選んでください。", "裏向きで重ねる", "表向きで重ねる");
+                    targets.forEach(c => applyDeckToUnder(c.id, count, choice === 'A'));
+                }
+            });
+            addMenuItem('🔼 山札から指定枚数を「上」に重ねる', async () => {
+                const countInput = prompt("「上」に重ねる枚数を入力してください", "1");
+                const count = parseInt(countInput);
+                if (!isNaN(count) && count > 0) {
+                    const choice = await askAB("重ねるカードの向きを選んでください。", "裏向きで重ねる", "表向きで重ねる");
+                    targets.forEach(c => applyDeckToTop(c.id, count, choice === 'A'));
+                }
+            });
+
+            if (targets.some(c => c.topCards && c.topCards.length > 0)) {
+                addMenuGroup('上に重なっているカード');
+                addMenuItem('🪦 一番上のカードを外す【捨て札へ】', () => {
+                    saveState();
+                    targets.forEach(c => {
+                        if (c.topCards && c.topCards.length > 0) {
+                            const s = c.topCards.pop();
+                            s.faceDown = false;
+                            let g = zones.find(z => z.type === 'grave') || zones[0];
+                            g.cards.unshift(s);
+                        }
+                    });
+                    render();
+                });
+                addMenuItem('⏳ 一番上のカードを外す【待機エリアへ】', () => {
+                    saveState();
+                    targets.forEach(c => {
+                        if (c.topCards && c.topCards.length > 0) {
+                            const s = c.topCards.pop();
+                            let w = zones.find(z => z.id === 'wait') || zones[0];
+                            w.cards.push(s);
+                        }
+                    });
+                    render();
+                });
+            }
+
+            if ((card.stack && card.stack.length > 0) || (card.topCards && card.topCards.length > 0)) {
+                if (!isMulti) {
+                    addDivider();
+                    addMenuItem(`🔍 重なっているカードを一覧表示`, () => openCardStackModal(card));
+                }
+            }
+
+            addDivider();
+            addMenuGroup(isMulti ? `移動 (${targets.length}枚 一括)` : '移動');
+            const moveAction = (zoneId) => { isMulti ? moveSelectedCards(zoneId) : moveCardToZone(card.id, zoneId); };
+            addMenuItem('🔝 山札の上へ', () => moveAction('deck'));
+            addMenuItem('🪦 捨て札へ', () => moveAction('grave'));
+
+            showMenuAt(e, menu);
+        }
+
+        function addMenuItem(text, action) {
+            const item = document.createElement('div'); item.className = 'menu-item';
+            item.textContent = text;
+            item.onclick = () => { action(); menu.style.display = 'none'; };
+            menu.appendChild(item);
+        }
+        function addMenuGroup(text) {
+            const group = document.createElement('div'); group.className = 'menu-group';
+            group.textContent = text; menu.appendChild(group);
+        }
+        function addDivider() {
+            const div = document.createElement('div'); div.className = 'menu-divider'; menu.appendChild(div);
+        }
+
+        // --- モーダル制御 ---
+        let currentModalMode = null;
+        let currentViewerZone = null;
+        let currentModalMainCard = null;
+        let modalLayoutMode = 'horizontal'; // 'horizontal' or 'grid'
+
+        // ★ モーダル内ドラッグ＆ドロップ用イベント
+        modalWaitWrapper.ondragover = e => {
+            if (e.dataTransfer.types.includes('application/x-modal-card-id')) e.preventDefault();
+        };
+        modalWaitWrapper.ondrop = async e => {
+            e.preventDefault(); e.stopPropagation();
+            const idStr = e.dataTransfer.getData('application/x-modal-card-id');
+            if (!idStr) return;
+            const cardId = parseInt(idStr);
+            const idsToMove = selectedCardIds.includes(cardId) && selectedCardIds.length > 1 ? [...selectedCardIds] : [cardId];
+
+            if (currentModalMode === 'stack' && idsToMove.includes(currentModalMainCard.id)) {
+                alert("メインのカードは移動できません。");
+                return;
+            }
+            await moveCardsToModalWait(idsToMove);
+        };
+
+        modalContent.ondragover = e => {
+            if (e.dataTransfer.types.includes('application/x-modal-card-id')) e.preventDefault();
+        };
+        modalContent.ondrop = async e => {
+            e.preventDefault(); e.stopPropagation();
+            const idStr = e.dataTransfer.getData('application/x-modal-card-id');
+            if (!idStr) return;
+            const cardId = parseInt(idStr);
+            const idsToMove = selectedCardIds.includes(cardId) && selectedCardIds.length > 1 ? [...selectedCardIds] : [cardId];
+
+            if (currentModalMode === 'stack' && idsToMove.includes(currentModalMainCard.id)) {
+                return;
+            }
+            await moveCardsToModalMain(idsToMove, 'bottom');
+        };
+
+        async function moveCardsToModalWait(ids) {
+            saveState();
+            let cards = extractCardsFromModalContext(ids);
+            selectedCardIds = selectedCardIds.filter(id => !ids.includes(id));
+            cards = await processStackedCards(cards);
+            cards.forEach(c => modalWaitCards.push(c));
+            updateModalView();
+        }
+
+        async function moveCardsToModalMain(ids, position = 'bottom') {
+            saveState();
+            let cards = extractCardsFromModalContext(ids);
+            selectedCardIds = selectedCardIds.filter(id => !ids.includes(id));
+            cards = await processStackedCards(cards);
+
+            if (currentModalMode === 'zone' || currentModalMode === 'peek') {
+                cards.forEach(c => {
+                    if (currentViewerZone.type === 'deck') c.faceDown = true;
+                    else if (currentViewerZone.type === 'grave') c.faceDown = false;
+                });
+                if (position === 'top') currentViewerZone.cards.unshift(...cards);
+                else currentViewerZone.cards.push(...cards);
+            } else if (currentModalMode === 'stack') {
+                if (position === 'top') currentModalMainCard.topCards.push(...cards);
+                else currentModalMainCard.stack.push(...cards);
+            }
+            updateModalView();
+            render();
+        }
+
+        function closeModal() {
+            if (modalWaitCards.length > 0) {
+                if ((currentModalMode === 'zone' || currentModalMode === 'peek') && currentViewerZone) {
+                    currentViewerZone.cards.unshift(...modalWaitCards);
+                } else {
+                    let w = zones.find(z => z.id === 'wait') || zones[0];
+                    w.cards.push(...modalWaitCards);
+                }
+                modalWaitCards = [];
+            }
+            modalOverlay.style.display = 'none';
+            currentModalMode = null;
+            currentModalMainCard = null;
+            currentViewerZone = null;
+            selectedCardIds = [];
+            render();
+        }
+
+        function openModalCommon() {
+            // position が reset されていれば初期位置を設定
+            if (!modalOverlay.style.left || !modalOverlay.style.top) {
+                modalOverlay.style.right = '20px';
+                modalOverlay.style.top = '60px';
+                modalOverlay.style.left = '';
+            }
+            modalOverlay.style.display = 'flex';
+            modalOverlay.classList.remove('minimized'); // 開くときは常に展開
+
+            // ヘッダーバーをつかんでドラッグ移動
+            const headerBar = document.getElementById('modal-header-bar');
+            headerBar._dragHandler && headerBar.removeEventListener('mousedown', headerBar._dragHandler);
+            let startX, startY, origLeft, origTop;
+            const onMove = (e) => {
+                const nx = origLeft + (e.clientX - startX);
+                const ny = origTop + (e.clientY - startY);
+                modalOverlay.style.left = Math.max(0, Math.min(window.innerWidth - modalOverlay.offsetWidth, nx)) + 'px';
+                modalOverlay.style.top = Math.max(0, Math.min(window.innerHeight - 60, ny)) + 'px';
+                modalOverlay.style.right = 'auto';
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                headerBar.style.cursor = 'grab';
+                // 移動距離が極小ならクリック（最小化）として扱う
+            };
+            headerBar._dragHandler = (e) => {
+                if (e.target.id === 'modal-close-x') return;
+                startX = e.clientX; startY = e.clientY;
+                let moved = false;
+
+                const rect = modalOverlay.getBoundingClientRect();
+                origLeft = rect.left; origTop = rect.top;
+                modalOverlay.style.left = origLeft + 'px';
+                modalOverlay.style.top = origTop + 'px';
+                modalOverlay.style.right = 'auto';
+                headerBar.style.cursor = 'grabbing';
+
+                const onTrackMove = (ev) => {
+                    if (Math.abs(ev.clientX - startX) > 5 || Math.abs(ev.clientY - startY) > 5) moved = true;
+                    onMove(ev);
+                };
+
+                const onTrackUp = () => {
+                    document.removeEventListener('mousemove', onTrackMove);
+                    document.removeEventListener('mouseup', onTrackUp);
+                    headerBar.style.cursor = 'grab';
+                    if (!moved) toggleModalMinimize(); // 移動していなければ最小化切り替え
+                };
+
+                document.addEventListener('mousemove', onTrackMove);
+                document.addEventListener('mouseup', onTrackUp);
+            };
+            headerBar.addEventListener('mousedown', headerBar._dragHandler);
+        }
+
+        function toggleModalMinimize() {
+            modalOverlay.classList.toggle('minimized');
+        }
+
+        function openCardStackModal(mainCard) {
+            currentModalMode = 'stack';
+            currentModalMainCard = mainCard;
+            updateModalView();
+            openModalCommon();
+        }
+
+        function openZoneViewerModal(zone) {
+            currentModalMode = 'zone';
+            currentViewerZone = zone;
+            updateModalView();
+            openModalCommon();
+        }
+
+        function shuffleAndClose() {
+            if ((currentModalMode === 'zone' || currentModalMode === 'peek') && currentViewerZone && currentViewerZone.type === 'deck') {
+                saveState();
+                if (modalWaitCards.length > 0) {
+                    currentViewerZone.cards.unshift(...modalWaitCards);
+                    modalWaitCards = [];
+                }
+                currentViewerZone.cards.sort(() => Math.random() - 0.5);
+                render();
+            }
+            closeModal();
+        }
+
+        async function moveSelectedToWaitFromModal() {
+            const waitZone = zones.find(z => z.id === 'wait');
+            if (!waitZone) return alert('待機エリアが見つかりません');
+
+            saveState();
+            let extracted = extractCardsFromModalContext([...selectedCardIds]);
+            extracted = await processStackedCards(extracted);
+
+            extracted.forEach(c => {
+                c.rot = 0;
+                // 山札等の確認中なら表向きにするが、スタック(封印等)の確認中は裏向きを維持
+                if (currentModalMode === 'zone' || currentModalMode === 'peek') {
+                    c.faceDown = false;
+                }
+                waitZone.cards.push(c);
+            });
+            selectedCardIds = [];
+            updateModalView();
+            render();
+        }
+
+        function updateModalView() {
+            modalWaitWrapper.style.display = 'block';
+            modalContent.innerHTML = '';
+            modalWaitContent.innerHTML = '';
+
+            // レイアウトモードの適用
+            modalContent.className = `modal-card-list ${modalLayoutMode}-mode`;
+            modalWaitContent.className = `modal-card-list ${modalLayoutMode}-mode`;
+
+            if (currentModalMode === 'peek') {
+                modalTitle.textContent = `${currentViewerZone.name} の上からめくったカード`;
+                modalContent.style.display = 'none';
+                document.getElementById('modal-divider').style.display = 'none';
+                document.getElementById('modal-subtitle').textContent = '▼ めくったカード (右クリックで各エリアへ移動) ▼';
+            } else {
+                modalContent.style.display = 'flex';
+                document.getElementById('modal-divider').style.display = 'block';
+                document.getElementById('modal-subtitle').textContent = '▼ 一時待機エリア (ドラッグ＆ドロップ可能) ▼';
+                if (currentModalMode === 'zone') {
+                    modalTitle.textContent = `${currentViewerZone.name} の中身 (${currentViewerZone.cards.length}枚)`;
+                } else if (currentModalMode === 'stack') {
+                    modalTitle.textContent = "重なっているカード一覧 (黄色枠がメイン)";
+                }
+            }
+
+            const createModalCard = (c, isMain, forceFaceUp = false, labelText = "", context = 'main') => {
+                const cEl = document.createElement('div');
+                const isSelected = selectedCardIds.includes(c.id);
+                const isVisualFaceDown = forceFaceUp ? false : c.faceDown;
+
+                let rotClass = '';
+                if (isVisualFaceDown) {
+                    if (currentModalMode === 'stack') rotClass = '';
+                    else rotClass = 'rotated-90';
+                }
+
+                cEl.className = `card ${isSelected ? 'selected' : ''} ${isVisualFaceDown ? 'face-down' : ''} ${rotClass}`;
+                // モーダル内でもカードの比率を維持
+                cEl.style.width = Math.floor(varToPx('--card-w') * 0.7) + 'px';
+                cEl.style.height = Math.floor(varToPx('--card-h') * 0.7) + 'px';
+                cEl.style.flexShrink = '0';
+                if (!isVisualFaceDown) cEl.style.backgroundImage = `url(${c.img})`;
+
+                if (isMain) cEl.style.boxShadow = "0 0 15px #ffcc00";
+
+                if (isSelected && !isMain) {
+                    const badge = document.createElement('div');
+                    badge.className = 'order-badge';
+                    badge.textContent = selectedCardIds.indexOf(c.id) + 1;
+                    badge.style.cssText += 'width:16px;height:16px;font-size:9px;top:-6px;left:-6px;';
+                    cEl.appendChild(badge);
+                }
+
+                if (labelText) {
+                    const label = document.createElement('div');
+                    label.style.position = 'absolute';
+                    label.style.bottom = '-18px';
+                    label.style.left = '50%';
+                    label.style.transform = 'translateX(-50%)';
+                    label.style.width = '80px';
+                    label.style.textAlign = 'center';
+                    label.style.fontSize = '9px';
+                    label.style.color = '#fff';
+                    label.style.background = '#000';
+                    label.style.padding = '1px 0';
+                    label.style.borderRadius = '3px';
+                    label.style.pointerEvents = 'none';
+                    label.style.whiteSpace = 'nowrap';
+                    label.style.overflow = 'hidden';
+                    label.textContent = labelText;
+                    cEl.appendChild(label);
+                    cEl.style.marginBottom = '20px';
+                }
+
+                if (!isMain) {
+                    cEl.draggable = true;
+                    cEl.ondragstart = (e) => {
+                        e.dataTransfer.setData('application/x-modal-card-id', c.id.toString());
+                        e.dataTransfer.setData('application/x-modal-card-context', context);
+                        e.stopPropagation();
+                    };
+                    // D&D並び替え用：ドラッグオーバーでハイライト
+                    cEl.ondragover = (e) => {
+                        if (e.dataTransfer.types.includes('application/x-modal-card-id')) {
+                            e.preventDefault();
+                            cEl.style.outline = '2px solid #0078d7';
+                        }
+                    };
+                    cEl.ondragleave = () => { cEl.style.outline = ''; };
+                    cEl.ondrop = (e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        cEl.style.outline = '';
+                        const srcId = parseInt(e.dataTransfer.getData('application/x-modal-card-id'));
+                        const srcCtx = e.dataTransfer.getData('application/x-modal-card-context');
+                        if (isNaN(srcId) || srcId === c.id || srcCtx !== context) return;
+                        saveState();
+                        // contextに応じてリストを取得して並び替え
+                        let list;
+                        if (context === 'main') list = currentModalMode === 'zone' ? currentViewerZone.cards : null;
+                        else if (context === 'wait') list = modalWaitCards;
+                        if (!list) return;
+                        const fromIdx = list.findIndex(x => x.id === srcId);
+                        const toIdx = list.findIndex(x => x.id === c.id);
+                        if (fromIdx === -1 || toIdx === -1) return;
+                        const [moved] = list.splice(fromIdx, 1);
+                        list.splice(toIdx, 0, moved);
+                        updateModalView();
+                        render();
+                    };
+                }
+
+                cEl.onclick = (e) => {
+                    e.stopPropagation();
+                    if (isMain) return alert("メインのカードは一覧からは直接移動できません。\n盤面から移動させてください。");
+                    const idx = selectedCardIds.indexOf(c.id);
+                    if (idx === -1) { selectedCardIds.push(c.id); }
+                    else { selectedCardIds.splice(idx, 1); }
+                    updateModalView();
+                    render();
+                };
+
+                cEl.oncontextmenu = (e) => {
+                    e.stopPropagation(); e.preventDefault();
+                    if (isMain) {
+                        // メインカードも右クリックで画像拡大できる
+                        if (!isVisualFaceDown) openPreview(c.img);
+                        return;
+                    }
+                    showModalExtractMenu(e, c, cEl, isVisualFaceDown ? null : c.img);
+                };
+                return cEl;
+            };
+
+            if (currentModalMode === 'zone') {
+                currentViewerZone.cards.forEach(c => modalContent.appendChild(createModalCard(c, false, true, '', 'main')));
+            } else if (currentModalMode === 'stack') {
+                if (currentModalMainCard.topCards) {
+                    const tops = [...currentModalMainCard.topCards].reverse();
+                    tops.forEach((c, i) => modalContent.appendChild(createModalCard(c, false, false, `上: ${i + 1}枚目${i === 0 ? ' (一番上)' : ''}`, 'main')));
+                }
+                modalContent.appendChild(createModalCard(currentModalMainCard, true, false, "メイン", 'main'));
+                if (currentModalMainCard.stack) {
+                    currentModalMainCard.stack.forEach((c, i) => modalContent.appendChild(createModalCard(c, false, false, `下: ${i + 1}枚目`, 'main')));
+                }
+            }
+
+            // ★ 一時待機エリアの描画時、スタック表示モードの場合は forceFaceUp を false (元の表裏を維持) にする
+            const forceWaitFaceUp = (currentModalMode === 'zone' && currentViewerZone && currentViewerZone.type === 'deck') || currentModalMode === 'peek';
+            modalWaitCards.forEach(c => {
+                modalWaitContent.appendChild(createModalCard(c, false, forceWaitFaceUp, '', 'wait'));
+            });
+
+            const selectedCount = selectedCardIds.length;
+            let buttonsHtml = `
+                <button class="btn-modal" onclick="closeModal()">閉じる</button>
+                <select class="btn-modal" style="background:#444; border:1px solid #666;" onchange="changeModalLayout(this.value)">
+                    <option value="horizontal" ${modalLayoutMode === 'horizontal' ? 'selected' : ''}>水平スクロール</option>
+                    <option value="grid" ${modalLayoutMode === 'grid' ? 'selected' : ''}>グリッド表示</option>
+                </select>
+            `;
+            if ((currentModalMode === 'zone' || currentModalMode === 'peek') && currentViewerZone.type === 'deck') {
+                const btnText = currentModalMode === 'peek' ? '🔀 残りを戻してシャッフル' : '🔀 シャッフルして閉じる';
+                buttonsHtml += `<button class="btn-modal btn-modal-primary" onclick="shuffleAndClose()">${btnText}</button>`;
+            }
+            if (selectedCount > 0) {
+                buttonsHtml += `<button class="btn-modal btn-modal-success" onclick="moveSelectedToWaitFromModal()">📥 選択中の ${selectedCount} 枚を盤面の待機エリアへ</button>`;
+            }
+            modalButtons.innerHTML = buttonsHtml;
+
+            // ★ 盤面の各エリアへのD&Dドロップゾーンを表示
+            renderModalFieldZones();
+        }
+
+        let modalFieldZonesCollapsed = false;
+
+        function renderModalFieldZones() {
+            const fieldZonesDiv = document.getElementById('modal-field-zones');
+            const divider2 = document.getElementById('modal-divider2');
+            fieldZonesDiv.innerHTML = '';
+            divider2.style.display = 'block';
+            fieldZonesDiv.style.display = 'block';
+
+            const label = document.createElement('div');
+            label.style.cssText = 'width:100%; font-size:11px; color:#aaa; font-weight:bold; background:#2a2a2a; padding:5px 8px; box-sizing:border-box; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-radius:4px; user-select:none; margin-bottom:4px;';
+            label.innerHTML = '<span>' + (modalFieldZonesCollapsed ? '▶' : '▼') + ' 盤面エリアへ直接D&Dで移動できます</span>' +
+                '<span style="font-size:10px;color:#888;">' + (modalFieldZonesCollapsed ? '▼ 展開' : '▲ 最小化') + '</span>';
+            fieldZonesDiv.appendChild(label);
+
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:' + (modalFieldZonesCollapsed ? 'none' : 'flex') + '; flex-wrap:wrap; gap:6px; width:100%; padding:4px 0;';
+
+            label.onclick = () => {
+                modalFieldZonesCollapsed = !modalFieldZonesCollapsed;
+                renderModalFieldZones();
+            };
+
+            zones.forEach(z => {
+                const zBtn = document.createElement('div');
+                zBtn.style.cssText = `
+                    background: rgba(255,255,255,0.06);
+                    border: 2px dashed #666;
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    min-width: 90px;
+                    flex: 1;
+                    cursor: pointer;
+                    font-size: 12px;
+                    color: #ccc;
+                    text-align: center;
+                    transition: background 0.15s, border-color 0.15s;
+                `;
+                zBtn.textContent = `${z.name} (${z.cards.length}枚)`;
+
+                zBtn.ondragover = (e) => {
+                    if (e.dataTransfer.types.includes('application/x-modal-card-id')) {
+                        e.preventDefault();
+                        zBtn.style.background = 'rgba(0,120,215,0.35)';
+                        zBtn.style.borderColor = '#0078d7';
+                    }
+                };
+                zBtn.ondragleave = () => {
+                    zBtn.style.background = 'rgba(255,255,255,0.06)';
+                    zBtn.style.borderColor = '#666';
+                };
+                zBtn.ondrop = async (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    zBtn.style.background = 'rgba(255,255,255,0.06)';
+                    zBtn.style.borderColor = '#666';
+                    const idStr = e.dataTransfer.getData('application/x-modal-card-id');
+                    if (!idStr) return;
+                    const cardId = parseInt(idStr);
+                    const idsToMove = selectedCardIds.includes(cardId) && selectedCardIds.length > 1 ? [...selectedCardIds] : [cardId];
+                    if (currentModalMode === 'stack' && idsToMove.includes(currentModalMainCard.id)) {
+                        alert("メインのカードは直接移動できません。");
+                        return;
+                    }
+                    await moveModalCardsToFieldZone(idsToMove, z.id);
+                };
+
+                grid.appendChild(zBtn);
+            });
+            fieldZonesDiv.appendChild(grid);
+        }
+
+        async function moveModalCardsToFieldZone(ids, targetZoneId) {
+            saveState();
+            const idsToExtract = [...ids];
+            let cards = extractCardsFromModalContext(idsToExtract);
+            selectedCardIds = selectedCardIds.filter(id => !idsToExtract.includes(id));
+            cards = await processStackedCards(cards);
+
+            const targetZone = zones.find(z => z.id === targetZoneId);
+            if (!targetZone) return;
+
+            cards.forEach(c => {
+                c.rot = 0;
+                if (targetZone.type === 'deck') c.faceDown = true;
+                else if (targetZone.type === 'grave') c.faceDown = false;
+                else if (targetZone.id === 'hand') c.faceDown = false;
+                else if (currentModalMode === 'zone' || currentModalMode === 'peek') c.faceDown = false;
+                targetZone.cards.push(c);
+            });
+            updateModalView();
+            render();
+        }
+
+        function extractCardsFromModalContext(idsToExtract) {
+            let extracted = [];
+            idsToExtract.forEach(id => {
+                let idx = modalWaitCards.findIndex(c => c.id === id);
+                if (idx !== -1) { extracted.push(modalWaitCards.splice(idx, 1)[0]); return; }
+
+                if (currentModalMode === 'zone') {
+                    idx = currentViewerZone.cards.findIndex(c => c.id === id);
+                    if (idx !== -1) { extracted.push(currentViewerZone.cards.splice(idx, 1)[0]); return; }
+                } else if (currentModalMode === 'stack') {
+                    idx = currentModalMainCard.topCards.findIndex(c => c.id === id);
+                    if (idx !== -1) { extracted.push(currentModalMainCard.topCards.splice(idx, 1)[0]); return; }
+                    idx = currentModalMainCard.stack.findIndex(c => c.id === id);
+                    if (idx !== -1) { extracted.push(currentModalMainCard.stack.splice(idx, 1)[0]); return; }
+                }
+            });
+            return extracted;
+        }
+
+        function showModalExtractMenu(e, clickedCard, cEl, imgSrc = null) {
+            menu.innerHTML = '';
+            const isMulti = selectedCardIds.includes(clickedCard.id) && selectedCardIds.length > 1;
+            const countText = isMulti ? `${selectedCardIds.length}枚を一括で` : 'このカードを';
+
+            // 画像拡大（表向きで imgSrc がある場合）
+            if (imgSrc && !isMulti) {
+                addMenuItem('🔍 画像を大きく表示', () => openPreview(imgSrc));
+                addDivider();
+            }
+
+            if (clickedCard.faceDown && !isMulti && currentModalMode !== 'peek' && currentModalMode !== 'zone') {
+                addMenuItem('👁️ こっそり確認 (3秒間ピーピング)', () => {
+                    const hadRotated = cEl.classList.contains('rotated-90');
+                    cEl.classList.remove('face-down', 'rotated-90');
+                    cEl.style.backgroundImage = `url(${clickedCard.img})`;
+                    cEl.style.boxShadow = "0 0 15px #00ffff";
+                    setTimeout(() => {
+                        cEl.classList.add('face-down');
+                        if (hadRotated) cEl.classList.add('rotated-90');
+                        cEl.style.boxShadow = "";
+                    }, 3000);
+                });
+                addDivider();
+            }
+
+            addMenuGroup(`${countText}移動`);
+
+            const moveToZone = async (targetZoneId, position = 'bottom') => {
+                saveState();
+                const idsToExtract = isMulti ? [...selectedCardIds] : [clickedCard.id];
+                let cards = extractCardsFromModalContext(idsToExtract);
+                selectedCardIds = selectedCardIds.filter(id => !idsToExtract.includes(id));
+
+                cards = await processStackedCards(cards);
+
+                const targetZone = zones.find(z => z.id === targetZoneId);
+                if (!targetZone) return;
+
+                cards.forEach(c => {
+                    c.rot = 0;
+                    if (targetZone.type === 'deck') c.faceDown = true;
+                    else if (targetZone.type === 'grave') c.faceDown = false;
+                    else if (targetZone.id === 'hand') c.faceDown = false;
+                    else {
+                        // ★ 山札などからの移動時は表向き、スタックからの移動は元の向きを維持
+                        if (currentModalMode === 'zone' || currentModalMode === 'peek') {
+                            c.faceDown = false;
+                        }
+                    }
+
+                    if (position === 'top') targetZone.cards.unshift(c);
+                    else targetZone.cards.push(c);
+                });
+                updateModalView();
+                render();
+            };
+
+            const moveToModalWait = async () => {
+                saveState();
+                const idsToExtract = isMulti ? [...selectedCardIds] : [clickedCard.id];
+                let cards = extractCardsFromModalContext(idsToExtract);
+                selectedCardIds = selectedCardIds.filter(id => !idsToExtract.includes(id));
+                cards = await processStackedCards(cards);
+                cards.forEach(c => modalWaitCards.push(c));
+                updateModalView();
+            };
+
+            const moveToModalZone = async (position) => {
+                saveState();
+                const idsToExtract = isMulti ? [...selectedCardIds] : [clickedCard.id];
+                let cards = extractCardsFromModalContext(idsToExtract);
+                selectedCardIds = selectedCardIds.filter(id => !idsToExtract.includes(id));
+                cards = await processStackedCards(cards);
+
+                if (currentModalMode === 'zone' || currentModalMode === 'peek') {
+                    cards.forEach(c => {
+                        if (currentViewerZone.type === 'deck') c.faceDown = true;
+                        else if (currentViewerZone.type === 'grave') c.faceDown = false;
+                    });
+                    if (position === 'top') currentViewerZone.cards.unshift(...cards);
+                    else currentViewerZone.cards.push(...cards);
+                } else if (currentModalMode === 'stack') {
+                    if (position === 'top') currentModalMainCard.topCards.push(...cards);
+                    else currentModalMainCard.stack.push(...cards);
+                }
+                updateModalView();
+                render();
+            };
+
+            if (currentModalMode === 'peek') {
+                addMenuItem('🔝 山札(元の場所)の一番上へ戻す', () => moveToModalZone('top'));
+                addMenuItem('⬇️ 山札(元の場所)の一番下へ送る', () => moveToModalZone('bottom'));
+            } else {
+                const isFromWait = modalWaitCards.some(c => c.id === clickedCard.id);
+                if (!isFromWait) {
+                    addMenuItem('👇 モーダル内の一時待機エリアへ送る', () => moveToModalWait());
+                    addDivider();
+                    addMenuItem('🔝 今の場所の一番上へ', () => moveToModalZone('top'));
+                    addMenuItem('⬇️ 今の場所の一番下へ', () => moveToModalZone('bottom'));
+                } else {
+                    addMenuItem('🔝 元の場所の一番上へ戻す', () => moveToModalZone('top'));
+                    addMenuItem('⬇️ 元の場所の一番下へ戻す', () => moveToModalZone('bottom'));
+                }
+            }
+
+            addDivider();
+            addMenuGroup('盤面の各エリアへ移動');
+            zones.forEach(z => {
+                if (currentModalMode !== 'zone' || z.id !== currentViewerZone.id) {
+                    addMenuItem(`➡️ ${z.name}へ`, () => moveToZone(z.id, 'bottom'));
+                }
+            });
+
+            showMenuAt(e, menu);
+        }
+
+        function updateCardScale(val) {
+            document.documentElement.style.setProperty('--card-w', Math.floor(70 * val) + 'px');
+            document.documentElement.style.setProperty('--card-h', Math.floor(100 * val) + 'px');
+            if (currentModalMode) updateModalView(); // モーダル表示中なら更新
+        }
+
+        function changeModalLayout(mode) {
+            modalLayoutMode = mode;
+            updateModalView();
+        }
+
+        function toggleModalLayout() {
+            // 下位互換用
+            const modes = ['horizontal', 'grid'];
+            let idx = modes.indexOf(modalLayoutMode);
+            modalLayoutMode = modes[(idx + 1) % modes.length];
+            updateModalView();
+        }
+
+        // CSS変数値を数値で取得する補助関数
+        function varToPx(varName) {
+            const val = getComputedStyle(document.documentElement).getPropertyValue(varName);
+            return parseInt(val) || 0;
+        }
+
+        document.getElementById('loader').onchange = e => {
+            pool = [];
+            const files = [...e.target.files];
+            files.forEach(f => {
+                const reader = new FileReader();
+                reader.onload = ev => pool.push(ev.target.result);
+                reader.readAsDataURL(f);
+            });
+            alert(`${files.length}枚の画像を読み込みました。`);
+        };
+
+        function initGame() {
+            if (pool.length === 0) return alert('先に画像を読み込んでください。');
+            saveState();
+            const deckZone = zones.find(z => z.type === 'deck');
+            if (!deckZone) return alert('山札ゾーンがありません！');
+            zones.forEach(z => z.cards = []);
+            const deck = pool.map(img => createCard(img));
+            deck.sort(() => Math.random() - 0.5);
+            deckZone.cards = deck;
+            selectedCardIds = [];
+            modalWaitCards = [];
+            render();
+        }
+
+        window.onclick = e => {
+            if (!e.target.closest('#context-menu') && !e.target.closest('#modal-overlay') && !e.target.closest('#dialog-overlay')) {
+                menu.style.display = 'none';
+            }
+            if (!e.target.closest('.card') && !e.target.closest('#context-menu') && !e.target.closest('#toolbar') && !e.target.closest('#modal-overlay') && !e.target.closest('#preview-overlay') && !e.target.closest('#dialog-overlay') && !e.target.closest('.resizer')) {
+                clearSelection();
+            }
+        };
+
+        let activeResizer = null;
+        let startY = 0;
+        let startPrevH = 0;
+        let startNextH = 0;
+
+        document.querySelectorAll('.resizer').forEach(resizer => {
+            resizer.addEventListener('mousedown', e => {
+                activeResizer = resizer;
+                startY = e.clientY;
+                const prev = resizer.previousElementSibling;
+                const next = resizer.nextElementSibling;
+                startPrevH = prev.getBoundingClientRect().height;
+                startNextH = next.getBoundingClientRect().height;
+                resizer.classList.add('dragging');
+                document.body.style.cursor = 'row-resize';
+                e.preventDefault();
+            });
+        });
+
+        document.addEventListener('mousemove', e => {
+            if (!activeResizer) return;
+            const dy = e.clientY - startY;
+            const prev = activeResizer.previousElementSibling;
+            const next = activeResizer.nextElementSibling;
+            const newPrevH = Math.max(60, startPrevH + dy);
+            const newNextH = Math.max(60, startNextH - dy);
+
+            if (newPrevH > 60 && newNextH > 60) {
+                prev.style.flex = `0 0 ${newPrevH}px`;
+                next.style.flex = `0 0 ${newNextH}px`;
+            } else {
+                const total = startPrevH + startNextH;
+                if (newPrevH <= 60) {
+                    prev.style.flex = `0 0 60px`;
+                    next.style.flex = `0 0 ${total - 60}px`;
+                } else if (newNextH <= 60) {
+                    next.style.flex = `0 0 60px`;
+                    prev.style.flex = `0 0 ${total - 60}px`;
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (activeResizer) {
+                activeResizer.classList.remove('dragging');
+                activeResizer = null;
+                document.body.style.cursor = '';
+            }
+        });
+
+        // ============================================================
+        // ★★★ ネット対戦 (P2P via PeerJS) ★★★
+        // ============================================================
+        let peer = null;
+        let peerConn = null;
+        let myPeerId = null;
+        let opponentData = null; // 相手のフィールドデータ
+        let netConnected = false;
+
+        function generateRoomId() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let id = '';
+            for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+            return id;
+        }
+
+        function openLobby() {
+            const overlay = document.getElementById('lobby-overlay');
+            const content = document.getElementById('lobby-content');
+            overlay.style.display = 'flex';
+
+            if (netConnected && peerConn) {
+                content.innerHTML = `
+                    <div class="lobby-section">
+                        <h3>✅ 対戦中</h3>
+                        <p style="color:#a7ffeb;font-size:14px;">相手と接続されています</p>
+                        <p style="color:#888;font-size:12px;">ルームID: ${myPeerId}</p>
+                        <button class="lobby-btn lobby-btn-disconnect" onclick="disconnectPeer()">🔌 切断する</button>
+                    </div>`;
+            } else {
+                content.innerHTML = `
+                    <div class="lobby-section">
+                        <h3>🏠 部屋を作る</h3>
+                        <p style="color:#aaa;font-size:12px;">ルームIDを相手に共有してください</p>
+                        <button class="lobby-btn lobby-btn-create" onclick="createRoom()">部屋を作成</button>
+                        <div id="room-created-info" style="display:none;margin-top:12px;">
+                            <p style="color:#888;font-size:11px;">このIDを相手に送ってください：</p>
+                            <div class="lobby-room-id" id="room-id-display" onclick="copyRoomId()"></div>
+                            <button class="lobby-btn" style="background:#0097a7;font-size:12px;padding:8px 16px;" onclick="copyRoomId()">📋 IDをコピー</button>
+                            <div class="lobby-status" id="room-status">⏳ 相手の接続を待っています...</div>
+                        </div>
+                    </div>
+                    <div style="color:#555;font-size:14px;margin:10px 0;">── または ──</div>
+                    <div class="lobby-section">
+                        <h3>🚪 部屋に参加</h3>
+                        <p style="color:#aaa;font-size:12px;">相手から受け取ったルームIDを入力</p>
+                        <input type="text" class="lobby-input" id="join-room-input" placeholder="ルームID" maxlength="10">
+                        <div style="margin-top:10px;">
+                            <button class="lobby-btn lobby-btn-join" onclick="joinRoom()">参加する</button>
+                        </div>
+                        <div class="lobby-status" id="join-status"></div>
+                    </div>`;
+            }
+        }
+
+        function closeLobby() {
+            document.getElementById('lobby-overlay').style.display = 'none';
+        }
+
+        function copyRoomId() {
+            const id = document.getElementById('room-id-display')?.textContent;
+            if (id) {
+                navigator.clipboard.writeText(id).then(() => {
+                    const el = document.getElementById('room-id-display');
+                    const orig = el.textContent;
+                    el.textContent = 'コピーしました！';
+                    el.style.color = '#69f0ae';
+                    setTimeout(() => { el.textContent = orig; el.style.color = '#a7ffeb'; }, 1200);
+                });
+            }
+        }
+
+        function createRoom() {
+            const roomId = 'TCG-' + generateRoomId();
+            initPeer(roomId, true);
+        }
+
+        function joinRoom() {
+            const input = document.getElementById('join-room-input');
+            const roomId = input.value.trim().toUpperCase();
+            if (!roomId) return alert('ルームIDを入力してください');
+            const statusEl = document.getElementById('join-status');
+            statusEl.textContent = '⏳ 接続中...';
+            initPeer(null, false, roomId);
+        }
+
+        function initPeer(roomId, isHost, targetId) {
+            if (peer) { peer.destroy(); peer = null; }
+
+            const peerOptions = { debug: 0 };
+
+            if (isHost) {
+                peer = new Peer(roomId, peerOptions);
+            } else {
+                peer = new Peer(peerOptions);
+            }
+
+            peer.on('open', (id) => {
+                myPeerId = id;
+                if (isHost) {
+                    document.getElementById('room-created-info').style.display = 'block';
+                    document.getElementById('room-id-display').textContent = roomId;
+                    document.getElementById('room-status').textContent = '⏳ 相手の接続を待っています...';
+                } else {
+                    peerConn = peer.connect(targetId);
+                    setupConnection(peerConn);
+                }
+            });
+
+            peer.on('connection', (conn) => {
+                peerConn = conn;
+                setupConnection(conn);
+            });
+
+            peer.on('error', (err) => {
+                console.error('PeerJS error:', err);
+                const joinStatus = document.getElementById('join-status');
+                const roomStatus = document.getElementById('room-status');
+                const msg = '❌ 接続エラー: ' + (err.type === 'peer-unavailable' ? 'ルームが見つかりません' : err.type);
+                if (joinStatus) joinStatus.textContent = msg;
+                if (roomStatus) roomStatus.textContent = msg;
+            });
+        }
+
+        function setupConnection(conn) {
+            conn.on('open', () => {
+                netConnected = true;
+                updateNetStatusBar(true);
+                // ロビーを接続済みに更新
+                const roomStatus = document.getElementById('room-status');
+                if (roomStatus) roomStatus.textContent = '✅ 接続完了！';
+                const joinStatus = document.getElementById('join-status');
+                if (joinStatus) joinStatus.textContent = '✅ 接続完了！';
+                // 少し待ってからロビーを閉じて自分の状態を送信
+                setTimeout(() => {
+                    closeLobby();
+                    sendMyState();
+                }, 800);
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'state') {
+                    opponentData = data.payload;
+                    renderOpponentField();
+                } else if (data.type === 'reset') {
+                    opponentData = null;
+                    renderOpponentField();
+                }
+            });
+
+            conn.on('close', () => {
+                netConnected = false;
+                peerConn = null;
+                opponentData = null;
+                updateNetStatusBar(false);
+                renderOpponentField();
+                alert('相手との接続が切断されました。');
+            });
+
+            conn.on('error', (err) => {
+                console.error('Connection error:', err);
+            });
+        }
+
+        function disconnectPeer() {
+            if (peerConn) peerConn.close();
+            if (peer) { peer.destroy(); peer = null; }
+            netConnected = false;
+            peerConn = null;
+            opponentData = null;
+            updateNetStatusBar(false);
+            renderOpponentField();
+            closeLobby();
+        }
+
+        function updateNetStatusBar(connected) {
+            const bar = document.getElementById('net-status-bar');
+            const dot = document.getElementById('net-status-dot');
+            const text = document.getElementById('net-status-text');
+            if (connected) {
+                bar.classList.add('connected');
+                dot.className = 'status-dot green';
+                text.textContent = '🟢 相手と接続中';
+            } else {
+                bar.classList.remove('connected');
+            }
+        }
+
+        // 自分のフィールド状態を相手に送信
+        function sendMyState() {
+            if (!peerConn || !netConnected) return;
+            const payload = buildStatePayload();
+            try { peerConn.send({ type: 'state', payload: payload }); } catch (e) { console.error(e); }
+        }
+
+        function buildStatePayload() {
+            return zones.map(z => {
+                if (z.id === 'hand') {
+                    // 手札: 枚数のみ、画像は送らない
+                    return { id: z.id, name: z.name, type: z.type, handCount: z.cards.length, cards: [] };
+                }
+                // 他のゾーン: カード情報を送信（表向きカードは画像込み、裏向きは画像なし）
+                return {
+                    id: z.id, name: z.name, type: z.type,
+                    cards: z.cards.map(c => serializeCard(c))
+                };
+            });
+        }
+
+        function serializeCard(c) {
+            return {
+                id: c.id,
+                img: c.faceDown ? null : c.img,
+                faceDown: c.faceDown,
+                rot: c.rot,
+                stackCount: c.stack ? c.stack.length : 0,
+                topCount: c.topCards ? c.topCards.length : 0,
+                topCards: (c.topCards || []).map(tc => ({
+                    id: tc.id,
+                    img: tc.faceDown ? null : tc.img,
+                    faceDown: tc.faceDown,
+                    rot: tc.rot
+                }))
+            };
+        }
+
+        // render()が呼ばれるたびに状態を同期
+        const _origRender = render;
+        render = function () {
+            _origRender();
+            sendMyState();
+        };
+
+        // 相手フィールドの描画
+        function renderOpponentField() {
+            const wrapper = document.getElementById('opponent-field-wrapper');
+            const container = document.getElementById('opponent-field');
+            container.innerHTML = '';
+
+            if (!opponentData || !netConnected) {
+                wrapper.classList.remove('active');
+                return;
+            }
+            wrapper.classList.add('active');
+
+            opponentData.forEach(z => {
+                const zEl = document.createElement('div');
+                zEl.className = 'zone';
+                zEl.style.minWidth = '140px';
+
+                const header = document.createElement('div');
+                header.className = 'zone-header';
+                header.innerHTML = `<span class="zone-title">${z.name}</span>`;
+                zEl.appendChild(header);
+
+                const cardsDiv = document.createElement('div');
+                cardsDiv.className = 'zone-cards';
+
+                if (z.id === 'hand') {
+                    // 手札は枚数分の裏面カードを表示
+                    for (let i = 0; i < (z.handCount || 0); i++) {
+                        const cEl = document.createElement('div');
+                        cEl.className = 'card face-down';
+                        cEl.style.width = '50px';
+                        cEl.style.height = '72px';
+                        cardsDiv.appendChild(cEl);
+                    }
+                    if (z.handCount > 0) {
+                        const badge = document.createElement('div');
+                        badge.style.cssText = 'position:absolute;bottom:2px;left:2px;background:#000;color:#fff;padding:1px 5px;border-radius:8px;font-size:10px;font-weight:bold;border:1px solid #777;';
+                        badge.textContent = z.handCount + '枚';
+                        zEl.style.position = 'relative';
+                        zEl.appendChild(badge);
+                    }
+                } else {
+                    const cards = (z.type === 'deck' || z.type === 'grave') ? z.cards.slice(0, 1) : z.cards;
+                    cards.forEach(c => {
+                        const cEl = document.createElement('div');
+                        cEl.className = `card ${c.faceDown ? 'face-down' : ''} rotated-${c.rot}`;
+                        cEl.style.width = '50px';
+                        cEl.style.height = '72px';
+                        cEl.style.backgroundSize = 'cover';
+                        if (!c.faceDown && c.img) cEl.style.backgroundImage = `url(${c.img})`;
+
+                        if ((z.type === 'deck' || z.type === 'grave') && z.cards.length > 0) {
+                            const badge = document.createElement('div');
+                            badge.className = 'zone-count-badge';
+                            badge.textContent = z.cards.length + '枚';
+                            cEl.appendChild(badge);
+                        }
+                        if (c.stackCount > 0) {
+                            const sb = document.createElement('div');
+                            sb.className = 'badge-under';
+                            sb.textContent = `下:${c.stackCount}`;
+                            sb.style.fontSize = '9px';
+                            cEl.appendChild(sb);
+                        }
+                        if (c.topCount > 0) {
+                            const tb = document.createElement('div');
+                            tb.className = 'badge-top';
+                            tb.textContent = `上:${c.topCount}`;
+                            tb.style.fontSize = '9px';
+                            cEl.appendChild(tb);
+
+                            if (c.topCards && c.topCards.length > 0) {
+                                const latest = c.topCards[c.topCards.length - 1];
+                                const topLayer = document.createElement('div');
+                                topLayer.className = 'top-layer';
+                                if (latest.faceDown) {
+                                    topLayer.style.backgroundImage = "url('https://via.placeholder.com/70x100/333333/cccccc?text=BACK')";
+                                    topLayer.classList.add('rotated-90');
+                                } else if (latest.img) {
+                                    topLayer.style.backgroundImage = `url(${latest.img})`;
+                                }
+                                topLayer.style.opacity = '1';
+                                cEl.appendChild(topLayer);
+                            }
+                        }
+                        cardsDiv.appendChild(cEl);
+                    });
+                }
+                zEl.appendChild(cardsDiv);
+                container.appendChild(zEl);
+            });
+        }
+
+        render();
+    </script>
+</body>
+
+</html>
